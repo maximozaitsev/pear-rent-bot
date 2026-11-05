@@ -1,21 +1,21 @@
 import { useCallback, useEffect, useState } from "react";
 import { api } from "../../api/client";
 import type { ChairDay, DaySchedule, WeekSchedule } from "../../api/types";
-import { addDays, formatDateRu, isoDate, mondayOf } from "./time";
+import { addDays, formatTime, isoDate, mondayOf } from "./time";
 import { ChairPicker } from "./ChairPicker";
+import { Banner, DayStrip, Empty, Icon, Loader, WeekNav, dayParts, errorText, haptic, todayIso } from "../../shared/ui";
 
-function chairStatus(chair: ChairDay, closed: boolean): { label: string; cls: string } {
-  if (closed) return { label: "Закрыто", cls: "status-closed" };
-  if (chair.is_fully_booked) return { label: "Занято", cls: "status-busy" };
-  if (chair.is_partially_booked) return { label: "Частично", cls: "status-partial" };
-  return { label: "Свободно", cls: "status-free" };
+function chairStatus(chair: ChairDay): { label: string; tone: "ok" | "warn" | "bad" } {
+  if (chair.is_fully_booked) return { label: "Занято", tone: "bad" };
+  if (chair.is_partially_booked) return { label: "Частично", tone: "warn" };
+  return { label: "Свободно", tone: "ok" };
 }
 
 export function RenterSchedule({ refreshKey }: { refreshKey?: number }) {
   const [weekStart, setWeekStart] = useState(() => mondayOf(new Date()));
   const [week, setWeek] = useState<WeekSchedule | null>(null);
-  const [selectedDay, setSelectedDay] = useState<DaySchedule | null>(null);
-  const [selectedChair, setSelectedChair] = useState<ChairDay | null>(null);
+  const [selectedDate, setSelectedDate] = useState("");
+  const [picker, setPicker] = useState<{ day: DaySchedule; chair: ChairDay } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
@@ -24,76 +24,74 @@ export function RenterSchedule({ refreshKey }: { refreshKey?: number }) {
     try {
       const data = await api.scheduleWeekly(isoDate(weekStart));
       setWeek(data);
-      setSelectedDay((prev) => data.days.find((d) => d.date === prev?.date) ?? data.days[0] ?? null);
-      setSelectedChair(null);
+      setSelectedDate((prev) =>
+        data.days.some((d) => d.date === prev) ? prev : data.days.find((d) => d.date === todayIso())?.date ?? data.days[0]?.date ?? "",
+      );
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Не удалось загрузить расписание");
+      setError(errorText(e, "Не удалось загрузить расписание"));
     } finally { setLoading(false); }
   }, [weekStart]);
 
   useEffect(() => { load(); }, [load, refreshKey]);
 
-  async function openChair(day: DaySchedule, chair: ChairDay) {
+  async function openChair(day: DaySchedule, chairId: string) {
     setError(null);
     try {
       const fresh = await api.scheduleDay(day.date);
-      setSelectedDay(fresh);
-      setSelectedChair(fresh.chairs.find((c) => c.chair_id === chair.chair_id) ?? null);
+      const chair = fresh.chairs.find((c) => c.chair_id === chairId);
+      setPicker(chair ? { day: fresh, chair } : null);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Ошибка");
+      setError(errorText(e));
     }
   }
 
+  const selectedDay = week?.days.find((d) => d.date === selectedDate) ?? null;
+
   return (
     <>
-      <section className="card">
-        <div className="row between wrap">
-          <h2>Расписание</h2>
-          <div className="row gap">
-            <button onClick={() => setWeekStart(addDays(weekStart, -7))}>← Неделя</button>
-            <button onClick={() => setWeekStart(mondayOf(new Date()))}>Сегодня</button>
-            <button onClick={() => setWeekStart(addDays(weekStart, 7))}>Неделя →</button>
-          </div>
-        </div>
-        {error && <p className="error">{error} <button className="link" onClick={load}>Повторить</button></p>}
-        {loading && !week && <p className="muted">Загрузка...</p>}
-        {week && (
-          <div className="week-grid">
-            {week.days.map((day) => (
-              <button key={day.date} className={`day-col ${selectedDay?.date === day.date ? "selected" : ""}`} onClick={() => { setSelectedDay(day); setSelectedChair(null); }}>
-                <div className="day-title">{formatDateRu(day.date)}</div>
-                {!day.working_hours.is_open ? <div className="muted small">Закрыто</div> :
-                  day.chairs.map((chair) => {
-                    const st = chairStatus(chair, false);
-                    return <div key={chair.chair_id} className={`chip ${st.cls}`}>{chair.name}: {st.label}</div>;
-                  })}
-              </button>
-            ))}
-          </div>
-        )}
-      </section>
+      <WeekNav weekStart={weekStart} onChange={setWeekStart} />
+      {error && <Banner kind="bad" onRetry={load}>{error}</Banner>}
+      {loading && !week && <Loader />}
+      {week && <DayStrip days={week.days} selected={selectedDate} onSelect={(d) => setSelectedDate(d.date)} />}
 
-      {selectedDay && !selectedChair && (
-        <section className="card">
-          <h2>{formatDateRu(selectedDay.date)}</h2>
-          {!selectedDay.working_hours.is_open ? <p className="muted">Барбершоп закрыт.</p> : (
-            <div className="list">
+      {selectedDay && (
+        <>
+          <div className="section-label">{dayParts(selectedDay.date).long}</div>
+          {!selectedDay.working_hours.is_open ? (
+            <Empty icon="🔒">Барбершоп в этот день закрыт</Empty>
+          ) : !selectedDay.chairs.length ? (
+            <Empty icon="💺">Нет доступных кресел</Empty>
+          ) : (
+            <ul className="list">
               {selectedDay.chairs.map((chair) => {
-                const st = chairStatus(chair, false);
+                const st = chairStatus(chair);
+                const free = chair.free_intervals.map((f) => `${formatTime(f.starts_at)}–${formatTime(f.ends_at)}`).join(", ");
                 return (
-                  <button key={chair.chair_id} className="list-item action" onClick={() => openChair(selectedDay, chair)}>
-                    <span>{chair.name}</span>
-                    <span className={`chip ${st.cls}`}>{st.label}</span>
-                  </button>
+                  <li key={chair.chair_id}>
+                    <button className="item" disabled={chair.is_fully_booked} onClick={() => { haptic(); openChair(selectedDay, chair.chair_id); }}>
+                      <div className="grow">
+                        <div className="title">{chair.name}</div>
+                        <div className="meta">{chair.is_fully_booked ? "Нет свободного времени" : `Свободно: ${free || "—"}`}</div>
+                      </div>
+                      <span className={`chip ${st.tone}`}>{st.label}</span>
+                      {!chair.is_fully_booked && <Icon name="right" />}
+                    </button>
+                  </li>
                 );
               })}
-            </div>
+            </ul>
           )}
-        </section>
+        </>
       )}
 
-      {selectedDay && selectedChair && (
-        <ChairPicker day={selectedDay} chair={selectedChair} onClose={() => setSelectedChair(null)} onBooked={load} />
+      {picker && (
+        <ChairPicker
+          day={picker.day}
+          chair={picker.chair}
+          onClose={() => setPicker(null)}
+          onBooked={() => { setPicker(null); load(); }}
+          onStale={async () => { await Promise.all([load(), openChair(picker.day, picker.chair.chair_id)]); }}
+        />
       )}
     </>
   );

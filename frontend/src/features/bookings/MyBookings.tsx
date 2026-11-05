@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { api } from "../../api/client";
 import type { Booking } from "../../api/types";
 import { formatMoney, formatTime } from "../schedule/time";
+import { Banner, Empty, dayParts, errorText, haptic } from "../../shared/ui";
 
 export function MyBookings({ onChanged }: { onChanged?: () => void }) {
   const [items, setItems] = useState<Booking[] | null>(null);
@@ -11,7 +12,7 @@ export function MyBookings({ onChanged }: { onChanged?: () => void }) {
   async function load() {
     setError(null);
     try { setItems(await api.myBookings()); }
-    catch (e) { setError(e instanceof Error ? e.message : "Ошибка загрузки"); }
+    catch (e) { setError(errorText(e, "Ошибка загрузки")); }
   }
 
   useEffect(() => { load(); }, []);
@@ -21,32 +22,37 @@ export function MyBookings({ onChanged }: { onChanged?: () => void }) {
     setBusyId(id);
     try {
       await api.cancelBooking(id);
+      haptic("success");
       await load();
       onChanged?.();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Не удалось отменить");
+      haptic("error");
+      setError(errorText(e, "Не удалось отменить"));
     } finally { setBusyId(null); }
   }
 
   return (
-    <section className="card">
-      <h2>Мои бронирования</h2>
-      {error && <p className="error">{error} <button className="link" onClick={load}>Повторить</button></p>}
-      {!items && !error && <p className="muted">Загрузка...</p>}
-      {items?.length === 0 && <p className="muted">Активных бронирований нет.</p>}
+    <>
+      {error && <Banner kind="bad" onRetry={load}>{error}</Banner>}
+      {!items && !error && <><div className="skeleton" /><div className="skeleton" /></>}
+      {items?.length === 0 && <Empty icon="📭">Активных бронирований нет.<br />Выберите время на вкладке «Расписание».</Empty>}
       <ul className="list">
-        {items?.map((b) => (
-          <li key={b.id} className="list-item">
-            <div>
-              <strong>{b.starts_at.slice(0, 10)}</strong> {formatTime(b.starts_at)}–{formatTime(b.ends_at)}
-              <div className="muted">{b.booking_type === "full_day" ? "Весь день" : `${b.duration_hours} ч`} · {formatMoney(b.price_amount, b.currency)}</div>
-            </div>
-            <button className="danger" disabled={busyId === b.id} onClick={() => cancel(b.id)}>
-              {busyId === b.id ? "..." : "Отменить"}
-            </button>
-          </li>
-        ))}
+        {items?.map((b) => {
+          const p = dayParts(b.starts_at.slice(0, 10));
+          return (
+            <li key={b.id} className="item">
+              <div className="date-badge"><b>{p.num}</b><span>{p.mon}</span></div>
+              <div className="grow">
+                <div className="title">{formatTime(b.starts_at)}–{formatTime(b.ends_at)}</div>
+                <div className="meta">{b.booking_type === "full_day" ? "Весь день" : `${b.duration_hours} ч`} · {formatMoney(b.price_amount, b.currency)}</div>
+              </div>
+              <button className="btn btn-sm btn-danger" disabled={busyId === b.id} onClick={() => cancel(b.id)}>
+                {busyId === b.id ? "..." : "Отменить"}
+              </button>
+            </li>
+          );
+        })}
       </ul>
-    </section>
+    </>
   );
 }

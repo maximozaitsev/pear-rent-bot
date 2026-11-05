@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { api, getTelegramWebApp, setToken } from "../../api/client";
 import { useAuth } from "./AuthContext";
+import { Banner, errorText, haptic } from "../../shared/ui";
 
 export function RegisterGate({ reason, inviteToken }: { reason: string; inviteToken: string | null }) {
   const { refresh } = useAuth();
@@ -16,31 +17,36 @@ export function RegisterGate({ reason, inviteToken }: { reason: string; inviteTo
     try {
       const auth = await api.register(initData, token.trim());
       setToken(auth.access_token);
+      haptic("success");
       refresh();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Не удалось зарегистрироваться");
+      haptic("error");
+      setError(errorText(e, "Не удалось зарегистрироваться"));
     } finally {
       setBusy(false);
     }
   }
 
   return (
-    <main className="app">
-      <h1>Доступ</h1>
+    <main className="app no-tabs" style={{ justifyContent: "center" }}>
+      <div className="center stack" style={{ justifyItems: "center" }}>
+        <div style={{ fontSize: "3.2rem" }}>🍐</div>
+        <h1>Pear Rent</h1>
+        <p className="muted">Аренда кресел в барбершопе</p>
+      </div>
       <section className="card">
-        <p>{reason}</p>
+        <h2>Доступ по приглашению</h2>
+        <p className="muted">{reason}</p>
         {inviteToken ? (
-          <p className="muted">Найдена пригласительная ссылка. Подтвердите регистрацию.</p>
+          <Banner kind="ok">Пригласительная ссылка найдена. Подтвердите регистрацию.</Banner>
         ) : (
-          <>
-            <label className="field">
-              <span>Пригласительный токен</span>
-              <input value={token} onChange={(e) => setTokenValue(e.target.value)} placeholder="invite token" />
-            </label>
-          </>
+          <label className="field">
+            <span>Пригласительный токен</span>
+            <input className="input" value={token} onChange={(e) => setTokenValue(e.target.value)} placeholder="Вставьте токен" autoCapitalize="off" autoCorrect="off" />
+          </label>
         )}
-        {error && <p className="error">{error}</p>}
-        <button className="primary" disabled={busy} onClick={submit}>{busy ? "Регистрация..." : "Зарегистрироваться"}</button>
+        {error && <Banner kind="bad">{error}</Banner>}
+        <button className="btn btn-primary btn-block" disabled={busy} onClick={submit}>{busy ? "Регистрация..." : "Зарегистрироваться"}</button>
       </section>
     </main>
   );

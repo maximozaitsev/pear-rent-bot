@@ -1,50 +1,57 @@
+// Теперь рендерится внутри <Sheet> (без собственной .card-обёртки).
 import { useState } from "react";
-import { ApiError, api, conflictText } from "../../api/client";
+import { api } from "../../api/client";
 import type { Booking } from "../../api/types";
 import { formatMoney, formatTime } from "../schedule/time";
-
-function renterName(b: Booking): string {
-  const r = b.renter;
-  if (!r) return "—";
-  return [r.first_name, r.last_name].filter(Boolean).join(" ") || r.username || String(r.telegram_id);
-}
+import { Banner, dayParts, errorText, haptic, personName } from "../../shared/ui";
 
 export function BookingCard({ booking, onChanged }: { booking: Booking; onChanged: () => void }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const paid = booking.payment_status === "paid";
+  const active = booking.status === "active";
 
   async function togglePayment() {
     setBusy(true); setError(null);
     try {
-      await api.adminSetPayment(booking.id, booking.payment_status === "paid" ? "unpaid" : "paid");
+      await api.adminSetPayment(booking.id, paid ? "unpaid" : "paid");
+      haptic("success");
       onChanged();
-    } catch (e) { setError(e instanceof Error ? e.message : "Ошибка"); }
+    } catch (e) { haptic("error"); setError(errorText(e)); }
     finally { setBusy(false); }
   }
 
   async function cancel() {
     if (!confirm("Отменить бронирование?")) return;
     setBusy(true); setError(null);
-    try { await api.cancelBooking(booking.id, "Отменено администратором"); onChanged(); }
-    catch (e) {
-      if (e instanceof ApiError) setError(conflictText(e.detail) || e.message);
-      else setError(e instanceof Error ? e.message : "Ошибка");
-    } finally { setBusy(false); }
+    try { await api.cancelBooking(booking.id, "Отменено администратором"); haptic("success"); onChanged(); }
+    catch (e) { haptic("error"); setError(errorText(e)); }
+    finally { setBusy(false); }
   }
 
   return (
-    <div className="card">
-      <h2>Бронь</h2>
-      <p><strong>{renterName(booking)}</strong> {booking.renter?.username ? `(@${booking.renter.username})` : ""}</p>
-      <p>{booking.starts_at.slice(0, 10)} {formatTime(booking.starts_at)}–{formatTime(booking.ends_at)} · {booking.booking_type === "full_day" ? "весь день" : `${booking.duration_hours} ч`}</p>
-      <p>{formatMoney(booking.price_amount, booking.currency)} · статус: {booking.status}</p>
-      <p>Оплата: <strong>{booking.payment_status === "paid" ? "Оплачено" : "Не оплачено"}</strong></p>
-      {booking.cancelled_at && <p className="muted">Отменено: {booking.cancelled_at.slice(0, 16)} {booking.cancellation_reason ? `(${booking.cancellation_reason})` : ""}</p>}
-      {error && <p className="error">{error}</p>}
-      <div className="row gap wrap">
-        <button disabled={busy} onClick={togglePayment}>{booking.payment_status === "paid" ? "Снять оплату" : "Отметить оплачено"}</button>
-        {booking.status === "active" && <button className="danger" disabled={busy} onClick={cancel}>Отменить бронь</button>}
+    <>
+      <div className="row between">
+        <div>
+          <h2>{personName(booking.renter)}</h2>
+          {booking.renter?.username && <div className="muted small">@{booking.renter.username}</div>}
+        </div>
+        <span className={`chip ${active ? "ok" : "mute"}`}>{active ? "активна" : booking.status === "cancelled" ? "отменена" : booking.status}</span>
       </div>
-    </div>
+
+      <dl className="kv" style={{ margin: 0 }}>
+        <dt>Дата</dt><dd>{dayParts(booking.starts_at.slice(0, 10)).long}</dd>
+        <dt>Время</dt><dd>{formatTime(booking.starts_at)}–{formatTime(booking.ends_at)} · {booking.booking_type === "full_day" ? "весь день" : `${booking.duration_hours} ч`}</dd>
+        <dt>Стоимость</dt><dd>{formatMoney(booking.price_amount, booking.currency)}</dd>
+        <dt>Оплата</dt><dd><span className={`chip ${paid ? "ok" : "warn"}`}>{paid ? "Оплачено" : "Не оплачено"}</span></dd>
+        {booking.cancelled_at && <><dt>Отмена</dt><dd>{booking.cancelled_at.slice(0, 16).replace("T", " ")}{booking.cancellation_reason ? ` · ${booking.cancellation_reason}` : ""}</dd></>}
+      </dl>
+
+      {error && <Banner kind="bad">{error}</Banner>}
+      <div className="stack">
+        <button className={`btn btn-block ${paid ? "" : "btn-primary"}`} disabled={busy} onClick={togglePayment}>{paid ? "Снять оплату" : "Отметить оплаченной"}</button>
+        {active && <button className="btn btn-danger btn-block" disabled={busy} onClick={cancel}>Отменить бронь</button>}
+      </div>
+    </>
   );
 }

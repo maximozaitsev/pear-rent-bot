@@ -16,13 +16,12 @@ export class ErrorBoundary extends React.Component<React.PropsWithChildren, Stat
   render() {
     if (this.state.error) {
       return (
-        <main className="app">
-          <h1>Ошибка приложения</h1>
+        <main className="app no-tabs">
+          <div className="empty"><div className="big">⚠️</div><h2>Ошибка приложения</h2></div>
           <section className="card">
             <p>Не удалось загрузить интерфейс. Обновите Mini App или откройте его из Telegram заново.</p>
-            <pre className="muted" style={{ whiteSpace: "pre-wrap" }}>
-              {this.state.error.message}
-            </pre>
+            <pre className="muted small" style={{ whiteSpace: "pre-wrap", margin: 0 }}>{this.state.error.message}</pre>
+            <button className="btn btn-primary btn-block" onClick={() => window.location.reload()}>Перезагрузить</button>
           </section>
         </main>
       );

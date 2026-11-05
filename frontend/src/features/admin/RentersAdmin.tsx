@@ -1,49 +1,82 @@
 import { useEffect, useState } from "react";
 import { api } from "../../api/client";
-import type { Renter } from "../../api/types";
+import type { Booking, Renter } from "../../api/types";
 import { formatMoney, formatTime } from "../schedule/time";
+import { Banner, Empty, Sheet, initials, errorText, haptic, personName } from "../../shared/ui";
 
 export function RentersAdmin() {
-  const [items, setItems] = useState<Renter[]>([]);
-  const [selected, setSelected] = useState<{ renter: Renter; bookings: any[] } | null>(null);
+  const [items, setItems] = useState<Renter[] | null>(null);
+  const [selected, setSelected] = useState<{ renter: Renter; bookings: Booking[] } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
   async function load() {
     setError(null);
-    try { setItems(await api.adminRenters()); } catch (e) { setError(e instanceof Error ? e.message : "Ошибка"); }
+    try { setItems(await api.adminRenters()); } catch (e) { setError(errorText(e)); }
   }
   useEffect(() => { load(); }, []);
 
   async function open(id: string) {
     setError(null);
-    try { setSelected(await api.adminRenter(id)); } catch (e) { setError(e instanceof Error ? e.message : "Ошибка"); }
+    try { setSelected(await api.adminRenter(id)); } catch (e) { setError(errorText(e)); }
   }
   async function toggle(r: Renter) {
     setBusy(true);
-    try { await api.adminSetRenterStatus(r.id, !r.is_active); await load(); if (selected?.renter.id === r.id) await open(r.id); }
-    catch (e) { setError(e instanceof Error ? e.message : "Ошибка"); }
+    try { await api.adminSetRenterStatus(r.id, !r.is_active); haptic("success"); await load(); if (selected?.renter.id === r.id) await open(r.id); }
+    catch (e) { setError(errorText(e)); }
     finally { setBusy(false); }
   }
 
   return (
-    <section className="card">
-      <h2>Арендаторы</h2>
-      {error && <p className="error">{error}</p>}
-      <ul className="list">{items.map((r) => (
-        <li key={r.id} className="list-item"><button className="link" onClick={() => open(r.id)}>{[r.first_name, r.last_name].filter(Boolean).join(" ") || r.username || r.telegram_id}</button><span className={`chip ${r.is_active ? "status-free" : "status-closed"}`}>{r.is_active ? "активен" : "неактивен"}</span></li>
-      ))}</ul>
+    <>
+      {error && <Banner kind="bad" onRetry={load}>{error}</Banner>}
+      {!items && !error && <><div className="skeleton" /><div className="skeleton" /></>}
+      {items?.length === 0 && <Empty icon="👥">Арендаторов пока нет.<br />Создайте приглашение на вкладке «Инвайты».</Empty>}
+      <ul className="list">
+        {items?.map((r) => {
+          const name = personName(r);
+          return (
+            <li key={r.id}>
+              <button className="item" onClick={() => { haptic(); open(r.id); }}>
+                <div className="avatar">{initials(name)}</div>
+                <div className="grow">
+                  <div className="title">{name}</div>
+                  <div className="meta">{r.username ? `@${r.username}` : `ID ${r.telegram_id}`}</div>
+                </div>
+                <span className={`chip ${r.is_active ? "ok" : "mute"}`}>{r.is_active ? "активен" : "неактивен"}</span>
+              </button>
+            </li>
+          );
+        })}
+      </ul>
+
       {selected && (
-        <div className="subcard">
-          <h3>Карточка</h3>
-          <p>{[selected.renter.first_name, selected.renter.last_name].filter(Boolean).join(" ")} {selected.renter.username ? `(@${selected.renter.username})` : ""}</p>
-          <p className="muted">Telegram ID: {selected.renter.telegram_id} · Регистрация: {selected.renter.created_at.slice(0, 10)}</p>
-          <button disabled={busy} onClick={() => toggle(selected.renter)}>{selected.renter.is_active ? "Деактивировать (запрет новых броней)" : "Активировать"}</button>
+        <Sheet title={personName(selected.renter)} onClose={() => setSelected(null)}>
+          <dl className="kv" style={{ margin: 0 }}>
+            <dt>Username</dt><dd>{selected.renter.username ? `@${selected.renter.username}` : "—"}</dd>
+            <dt>Telegram ID</dt><dd>{selected.renter.telegram_id}</dd>
+            <dt>Регистрация</dt><dd>{selected.renter.created_at.slice(0, 10)}</dd>
+            <dt>Статус</dt><dd><span className={`chip ${selected.renter.is_active ? "ok" : "mute"}`}>{selected.renter.is_active ? "активен" : "неактивен"}</span></dd>
+          </dl>
+          <button className={`btn btn-block ${selected.renter.is_active ? "btn-danger" : "btn-primary"}`} disabled={busy} onClick={() => toggle(selected.renter)}>
+            {selected.renter.is_active ? "Деактивировать (запрет новых броней)" : "Активировать"}
+          </button>
           <p className="muted small">Существующие брони при деактивации не отменяются автоматически.</p>
-          <h4>Брони</h4>
-          <ul className="list">{selected.bookings.map((b) => <li key={b.id} className="small">{b.starts_at.slice(0, 10)} {formatTime(b.starts_at)}–{formatTime(b.ends_at)} · {b.status} · {formatMoney(b.price_amount, b.currency)} · {b.payment_status}</li>)}</ul>
-        </div>
+          <div className="section-label">Брони</div>
+          {selected.bookings.length === 0 && <p className="muted">Броней нет.</p>}
+          <ul className="list">
+            {selected.bookings.map((b) => (
+              <li key={b.id} className="item-plain">
+                <div>
+                  <div style={{ fontWeight: 600 }}>{b.starts_at.slice(0, 10)} · {formatTime(b.starts_at)}–{formatTime(b.ends_at)}</div>
+                  <div className="muted small">{formatMoney(b.price_amount, b.currency)} · {b.status}</div>
+                </div>
+                <span className={`chip ${b.payment_status === "paid" ? "ok" : "warn"}`}>{b.payment_status === "paid" ? "оплачено" : "не оплачено"}</span>
+              </li>
+            ))}
+          </ul>
+        </Sheet>
       )}
-    </section>
+    </>
   );
 }

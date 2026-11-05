@@ -1,19 +1,36 @@
 import { useCallback, useEffect, useState } from "react";
 import { api } from "../../api/client";
-import type { Booking, DaySchedule } from "../../api/types";
-import { addDays, formatDateRu, formatMoney, formatTime, isoDate, mondayOf } from "../schedule/time";
+import type { Booking, ChairDay, DaySchedule } from "../../api/types";
+import { formatMoney, formatTime, isoDate, mondayOf } from "../schedule/time";
 import { BookingCard } from "./BookingCard";
+import { Banner, DayStrip, Empty, Loader, Sheet, WeekNav, dayParts, errorText, haptic, personName, todayIso } from "../../shared/ui";
 
-function renterName(b: NonNullable<DaySchedule["chairs"][number]["bookings"][number]>): string {
-  const r = b.renter;
-  if (!r) return "Занято";
-  return [r.first_name, r.last_name].filter(Boolean).join(" ") || r.username || String(r.telegram_id);
+type DB = ChairDay["bookings"][number];
+
+function toHours(t: string): number {
+  const s = formatTime(t);
+  return Number(s.slice(0, 2)) + Number(s.slice(3, 5)) / 60;
+}
+
+function Occupancy({ day, bookings }: { day: DaySchedule; bookings: DB[] }) {
+  const o = day.working_hours.open_time ? Number(day.working_hours.open_time.slice(0, 2)) : 9;
+  const c = day.working_hours.close_time ? Number(day.working_hours.close_time.slice(0, 2)) : 22;
+  const span = Math.max(1, c - o);
+  return (
+    <div className="occ" aria-hidden="true">
+      {bookings.map((b) => {
+        const left = ((toHours(b.starts_at) - o) / span) * 100;
+        const width = ((toHours(b.ends_at) - toHours(b.starts_at)) / span) * 100;
+        return <i key={b.id} className={b.payment_status === "paid" ? "" : "unpaid"} style={{ left: `${left}%`, width: `${width}%` }} />;
+      })}
+    </div>
+  );
 }
 
 export function AdminCalendar() {
   const [weekStart, setWeekStart] = useState(() => mondayOf(new Date()));
   const [days, setDays] = useState<DaySchedule[]>([]);
-  const [selectedDay, setSelectedDay] = useState<DaySchedule | null>(null);
+  const [selectedDate, setSelectedDate] = useState("");
   const [selectedBooking, setSelectedBooking] = useState<Booking | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -23,22 +40,21 @@ export function AdminCalendar() {
     try {
       const week = await api.scheduleWeekly(isoDate(weekStart));
       setDays(week.days);
-      if (selectedDay) {
-        const freshDay = week.days.find((d) => d.date === selectedDay.date) ?? null;
-        setSelectedDay(freshDay);
-      }
-    } catch (e) { setError(e instanceof Error ? e.message : "Ошибка загрузки"); }
+      setSelectedDate((prev) =>
+        week.days.some((d) => d.date === prev) ? prev : week.days.find((d) => d.date === todayIso())?.date ?? week.days[0]?.date ?? "",
+      );
+    } catch (e) { setError(errorText(e, "Ошибка загрузки")); }
     finally { setLoading(false); }
-  }, [weekStart, selectedDay?.date]);
+  }, [weekStart]);
 
-  useEffect(() => { load(); }, [weekStart]);
+  useEffect(() => { load(); }, [load]);
 
   async function openBooking(id: string) {
     try {
       const all = await api.adminBookings({});
       const found = all.find((b) => b.id === id);
       if (found) setSelectedBooking(found);
-    } catch (e) { setError(e instanceof Error ? e.message : "Ошибка"); }
+    } catch (e) { setError(errorText(e)); }
   }
 
   async function refreshAfterChange() {
@@ -47,76 +63,94 @@ export function AdminCalendar() {
   }
 
   const chairs = days[0]?.chairs ?? [];
+  const selectedDay = days.find((d) => d.date === selectedDate) ?? null;
+  const counts: Record<string, number> = {};
+  for (const d of days) counts[d.date] = d.chairs.reduce((n, c) => n + c.bookings.length, 0);
 
   return (
     <>
-      <section className="card">
-        <div className="row between wrap">
-          <h2>Календарь (кресла × даты)</h2>
-          <div className="row gap">
-            <button onClick={() => setWeekStart(addDays(weekStart, -7))}>← Неделя</button>
-            <button onClick={() => setWeekStart(mondayOf(new Date()))}>Сегодня</button>
-            <button onClick={() => setWeekStart(addDays(weekStart, 7))}>Неделя →</button>
-          </div>
-        </div>
-        {error && <p className="error">{error} <button className="link" onClick={load}>Повторить</button></p>}
-        {loading && !days.length && <p className="muted">Загрузка...</p>}
-        {!!days.length && (
-          <div style={{ overflowX: "auto" }}>
-            <table className="admin-grid">
-              <thead><tr><th>Кресло</th>{days.map((d) => <th key={d.date}><button className="link" onClick={() => setSelectedDay(d)}>{formatDateRu(d.date)}</button></th>)}</tr></thead>
-              <tbody>
-                {chairs.map((chairRef) => (
-                  <tr key={chairRef.chair_id}>
-                    <th>{chairRef.name}</th>
-                    {days.map((day) => {
-                      const chair = day.chairs.find((c) => c.chair_id === chairRef.chair_id);
-                      if (!chair) return <td key={day.date}>—</td>;
-                      if (!day.working_hours.is_open) return <td key={day.date}><span className="chip status-closed">Закрыто</span></td>;
-                      if (!chair.bookings.length) return <td key={day.date}><span className="chip status-free">Свободно</span></td>;
-                      return (
-                        <td key={day.date}>
-                          {chair.bookings.map((b) => (
-                            <button key={b.id} className={`cell-booking ${b.payment_status === "paid" ? "paid" : "unpaid"}`} onClick={() => openBooking(b.id)}>
-                              <div>{renterName(b)}</div>
-                              <div className="small">{b.booking_type === "full_day" ? "весь день" : `${formatTime(b.starts_at)}–${formatTime(b.ends_at)}`}</div>
-                              <div className="small">{b.payment_status === "paid" ? "оплачено" : "не оплачено"} {b.price_amount ? `· ${formatMoney(b.price_amount, b.currency)}` : ""}</div>
-                            </button>
-                          ))}
-                        </td>
-                      );
-                    })}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </section>
+      <WeekNav weekStart={weekStart} onChange={setWeekStart} />
+      {error && <Banner kind="bad" onRetry={load}>{error}</Banner>}
+      {loading && !days.length && <Loader />}
 
-      {selectedDay && (
-        <section className="card">
-          <div className="row between"><h2>День: {formatDateRu(selectedDay.date)}</h2><button className="link" onClick={() => setSelectedDay(null)}>Закрыть</button></div>
-          {!selectedDay.working_hours.is_open ? <p className="muted">Барбершоп закрыт.</p> : selectedDay.chairs.map((chair) => (
-            <div key={chair.chair_id} className="subcard">
-              <strong>{chair.name}</strong>
-              <p className="muted small">Свободно: {chair.free_intervals.map((f) => `${formatTime(f.starts_at)}–${formatTime(f.ends_at)}`).join(", ") || "нет"}</p>
-              {chair.bookings.map((b) => (
-                <button key={b.id} className="list-item action" onClick={() => openBooking(b.id)}>
-                  <span>{formatTime(b.starts_at)}–{formatTime(b.ends_at)} · {renterName(b)}</span>
-                  <span className={`chip ${b.payment_status === "paid" ? "status-free" : "status-partial"}`}>{b.payment_status === "paid" ? "оплачено" : "не оплачено"}</span>
-                </button>
-              ))}
-            </div>
-          ))}
-        </section>
+      {!!days.length && (
+        <>
+          <DayStrip days={days} selected={selectedDate} onSelect={(d) => setSelectedDate(d.date)} counts={counts} />
+
+          {selectedDay && (
+            <>
+              <div className="section-label">{dayParts(selectedDay.date).long}</div>
+              {!selectedDay.working_hours.is_open ? (
+                <Empty icon="🔒">Барбершоп закрыт</Empty>
+              ) : (
+                selectedDay.chairs.map((chair) => (
+                  <section key={chair.chair_id} className="card">
+                    <div className="card-head">
+                      <h2>{chair.name}</h2>
+                      <span className="muted small">{chair.bookings.length ? `${chair.bookings.length} бр.` : "свободно"}</span>
+                    </div>
+                    <Occupancy day={selectedDay} bookings={chair.bookings} />
+                    {chair.bookings.map((b) => (
+                      <button key={b.id} className="item-plain" onClick={() => { haptic(); openBooking(b.id); }}>
+                        <div>
+                          <div style={{ fontWeight: 600 }}>{b.booking_type === "full_day" ? "Весь день" : `${formatTime(b.starts_at)}–${formatTime(b.ends_at)}`} · {personName(b.renter, "Занято")}</div>
+                          {!!b.price_amount && <div className="muted small">{formatMoney(b.price_amount, b.currency)}</div>}
+                        </div>
+                        <span className={`chip ${b.payment_status === "paid" ? "ok" : "warn"}`}>{b.payment_status === "paid" ? "оплачено" : "не оплачено"}</span>
+                      </button>
+                    ))}
+                    <p className="muted small">Свободно: {chair.free_intervals.map((f) => `${formatTime(f.starts_at)}–${formatTime(f.ends_at)}`).join(", ") || "нет"}</p>
+                  </section>
+                ))
+              )}
+            </>
+          )}
+
+          {chairs.length > 0 && (
+            <>
+              <div className="section-label">Обзор недели</div>
+              <section className="card">
+                <div className="matrix-wrap">
+                  <table className="matrix">
+                    <thead>
+                      <tr><th />{days.map((d) => <th key={d.date}>{dayParts(d.date).wd}<br />{dayParts(d.date).num}</th>)}</tr>
+                    </thead>
+                    <tbody>
+                      {chairs.map((chairRef) => (
+                        <tr key={chairRef.chair_id}>
+                          <th className="rowh">{chairRef.name}</th>
+                          {days.map((day) => {
+                            const chair = day.chairs.find((c) => c.chair_id === chairRef.chair_id);
+                            if (!chair || !day.working_hours.is_open) return <td key={day.date}><button disabled>—</button></td>;
+                            const n = chair.bookings.length;
+                            const unpaid = chair.bookings.some((b) => b.payment_status !== "paid");
+                            return (
+                              <td key={day.date}>
+                                <button className={`${n ? (unpaid ? "unpaid" : "has") : ""} ${day.date === selectedDate ? "sel" : ""}`} onClick={() => setSelectedDate(day.date)}>
+                                  {n || ""}
+                                </button>
+                              </td>
+                            );
+                          })}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                <div className="legend">
+                  <span><i style={{ background: "color-mix(in srgb, var(--ok) 40%, transparent)" }} />оплачено</span>
+                  <span><i style={{ background: "color-mix(in srgb, var(--warn) 40%, transparent)" }} />есть неоплаченные</span>
+                </div>
+              </section>
+            </>
+          )}
+        </>
       )}
 
       {selectedBooking && (
-        <>
+        <Sheet title="Бронь" onClose={() => setSelectedBooking(null)}>
           <BookingCard booking={selectedBooking} onChanged={refreshAfterChange} />
-          <button className="link" onClick={() => setSelectedBooking(null)}>Закрыть карточку брони</button>
-        </>
+        </Sheet>
       )}
     </>
   );
