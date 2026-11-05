@@ -89,10 +89,11 @@ def register_renter_with_invite(
     Never allows assigning admin role via invite.
     """
     token_digest = hash_token(token)
-    if db.in_transaction():
-        ctx = db.begin_nested()
-    else:
+    started_tx = not db.in_transaction()
+    if started_tx:
         ctx = db.begin()
+    else:
+        ctx = db.begin_nested()
     with ctx:
         invitation = db.scalar(
             select(Invitation).where(Invitation.token_hash == token_digest).with_for_update()
@@ -139,5 +140,8 @@ def register_renter_with_invite(
         invitation.status = InvitationStatus.used
         invitation.used_by = user.id
         invitation.used_at = datetime.now(UTC)
+    # Persist in request-scoped sessions (autobegin leaves an outer transaction open).
+    if not started_tx and db.in_transaction():
+        db.commit()
     db.refresh(user)
     return user
