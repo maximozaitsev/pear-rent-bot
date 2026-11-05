@@ -77,7 +77,8 @@ def create_booking(
 
     # Server-side validation and transactional protection against double booking.
     try:
-        ctx = db.begin_nested() if db.in_transaction() else db.begin()
+        started_outer = not db.in_transaction()
+        ctx = db.begin_nested() if not started_outer else db.begin()
         with ctx:
             renter = _resolve_renter(db, actor=actor, renter_id=renter_id)
             _lock_chair(db, chair_id)
@@ -115,6 +116,9 @@ def create_booking(
             )
             db.add(booking)
             db.flush()
+        # Persist for request-scoped sessions (autobegin leaves an outer transaction open).
+        if not started_outer and db.in_transaction():
+            db.commit()
         db.refresh(booking)
         return booking
     except IntegrityError as exc:

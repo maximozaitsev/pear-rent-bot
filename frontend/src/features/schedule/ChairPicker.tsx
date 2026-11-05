@@ -7,6 +7,19 @@ function hourRange(iso: string): string {
   return iso.includes("T") ? iso.slice(11, 16) : iso.slice(0, 5);
 }
 
+function toTs(iso: string): number {
+  // API returns offset-aware ISO; normalize to comparable timestamp for same-day checks.
+  const t = Date.parse(iso);
+  return Number.isNaN(t) ? Date.parse(iso.replace(/([+-]\d\d:\d\d|Z)$/, "")) : t;
+}
+
+function slotCovers(startLocal: string, endLocal: string, free: { starts_at: string; ends_at: string }[]): boolean {
+  // start/end local like 2026-11-06T09:00:00 (shop local); compare as times of day on same date.
+  const s = startLocal.slice(11, 16);
+  const e = endLocal.slice(11, 16);
+  return free.some((f) => s >= hourRange(f.starts_at) && e <= hourRange(f.ends_at));
+}
+
 export function ChairPicker({
   day,
   chair,
@@ -47,13 +60,13 @@ export function ChairPicker({
 
   const hourlyHours =
     startHour && endHour ? Math.max(0, Number(endHour.slice(0, 2)) - Number(startHour.slice(0, 2))) : 0;
-  const hourlyStart = startHour ? `${day.date}T${startHour}:00Z` : null;
-  const hourlyEnd = endHour ? `${day.date}T${endHour}:00Z` : null;
+  const hourlyStart = startHour ? `${day.date}T${startHour}:00` : null;
+  const hourlyEnd = endHour ? `${day.date}T${endHour}:00` : null;
   const hourlyValid =
     !!hourlyStart &&
     !!hourlyEnd &&
     hourlyHours >= 1 &&
-    isSlotInFree(hourlyStart, hourlyEnd, chair.free_intervals);
+    slotCovers(hourlyStart, hourlyEnd, chair.free_intervals);
 
   async function submit() {
     setBusy(true);
@@ -64,8 +77,8 @@ export function ChairPicker({
         if (!wh.open_time || !wh.close_time) throw new Error("Барбершоп закрыт в этот день");
         await api.createBooking({
           chair_id: chair.chair_id,
-          starts_at: `${day.date}T${wh.open_time.slice(0, 5)}:00Z`,
-          ends_at: `${day.date}T${wh.close_time.slice(0, 5)}:00Z`,
+          starts_at: `${day.date}T${wh.open_time.slice(0, 5)}:00`,
+          ends_at: `${day.date}T${wh.close_time.slice(0, 5)}:00`,
           booking_type: "full_day",
         });
       } else {
@@ -110,10 +123,10 @@ export function ChairPicker({
             <>
               <div className="slots">
                 {slots.map((slot) => {
-                  const start = `${day.date}T${slot}:00Z`;
+                  const start = `${day.date}T${slot}:00`;
                   const h = Number(slot.slice(0, 2));
-                  const end = `${day.date}T${String(h + 1).padStart(2, "0")}:00Z`;
-                  const free = isSlotInFree(start, end, chair.free_intervals);
+                  const end = `${day.date}T${String(h + 1).padStart(2, "0")}:00`;
+                  const free = slotCovers(start, end, chair.free_intervals);
                   const selected = startHour && ((endHour && slot >= startHour && slot < endHour) || (!endHour && slot === startHour));
                   return (
                     <button key={slot} className={`slot ${free ? "free" : "busy"} ${selected ? "selected" : ""}`} disabled={!free} onClick={() => selectHour(slot)}>
