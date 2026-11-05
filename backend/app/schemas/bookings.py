@@ -1,9 +1,26 @@
 import uuid
 from datetime import datetime
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+from zoneinfo import ZoneInfo
 
+from app.core.config import settings
 from app.models import BookingType, PaymentStatus
+
+
+def _coerce_shop_datetime(value: object) -> object:
+    if not isinstance(value, str):
+        return value
+    s = value.strip()
+    if not s:
+        return value
+    try:
+        dt = datetime.fromisoformat(s.replace("Z", "+00:00"))
+    except ValueError:
+        return value
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=ZoneInfo(settings.timezone))
+    return dt
 
 
 class BookingCreateRequest(BaseModel):
@@ -12,6 +29,11 @@ class BookingCreateRequest(BaseModel):
     ends_at: datetime
     booking_type: BookingType
     renter_id: uuid.UUID | None = None  # admin-only
+
+    @field_validator("starts_at", "ends_at", mode="before")
+    @classmethod
+    def _shop_local(cls, v: object) -> object:
+        return _coerce_shop_datetime(v)
 
 
 class BookingCancelRequest(BaseModel):

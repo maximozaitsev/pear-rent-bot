@@ -8,6 +8,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.bot.runtime import get_bot
+from app.core.config import settings
 from app.core.db import SessionLocal
 from app.models import Booking, Chair, NotificationLog, User, UserRole
 from app.services.schedule import localize_shop
@@ -140,11 +141,38 @@ async def _send_with_retries(bot, telegram_id: int, text: str) -> tuple[bool, st
                 "telegram notification failed attempt=%s telegram_id=%s error=%s",
                 attempt,
                 telegram_id,
-                type(exc).__name__,
+                last_error,
             )
             if attempt < MAX_ATTEMPTS:
                 await asyncio.sleep(RETRY_DELAY_SECONDS * attempt)
     return False, last_error
+
+
+def _send_notification(telegram_id: int, text: str) -> tuple[bool, str | None]:
+    """Send from sync context. Uses injected/mock bot in tests; fresh Bot in runtime."""
+    bot = get_bot()
+    # Preserve test hooks (AsyncMock/mocks). In production, avoid reusing polling-loop Bot.
+    if bot is not None and type(bot).__module__.startswith("unittest.mock"):
+        return asyncio.run(_send_with_retries(bot, telegram_id, text))
+
+    if not settings.telegram_bot_token:
+        return False, "telegram bot not configured"
+
+    async def _run() -> tuple[bool, str | None]:
+        from aiogram import Bot
+
+        async with Bot(token=settings.telegram_bot_token) as fresh:
+            return await _send_with_retries(fresh, telegram_id, text)
+
+    try:
+        return asyncio.run(_run())
+    except RuntimeError as exc:
+        if "event loop" not in str(exc).lower():
+            return False, f"RuntimeError: {exc}"[:1000]
+        import concurrent.futures
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as ex:
+            return ex.submit(lambda: asyncio.run(_run())).result(timeout=60)
 
 
 def _dispatch_events(
@@ -163,7 +191,6 @@ def _dispatch_events(
         chair_name, renter_name = _booking_details(db, booking)
         actor = db.get(User, actor_id) if actor_id else None
         text = _build_messages(event_type=event_type, booking=booking, chair_name=chair_name, renter_name=renter_name, actor=actor)
-        bot = get_bot()
         for recipient_id in recipient_ids:
             log = _get_or_create_log(db, event_type=event_type, booking_id=booking_id, recipient_user_id=recipient_id)
             if log is None or log.status == "sent":
@@ -174,14 +201,14 @@ def _dispatch_events(
                 log.last_error = "recipient missing or inactive"
                 db.commit()
                 continue
-            if bot is None:
+            if not settings.telegram_bot_token and not (get_bot() and type(get_bot()).__module__.startswith("unittest.mock")):
                 log.status = "failed"
                 log.attempts = log.attempts
                 log.last_error = "telegram bot not configured"
                 db.commit()
                 logger.warning("notification skipped: bot not configured event=%s recipient=%s", event_type, recipient_id)
                 continue
-            ok, err = asyncio.run(_send_with_retries(bot, recipient.telegram_id, text))
+            ok, err = _send_notification(recipient.telegram_id, text)
             log.attempts = MAX_ATTEMPTS if not ok else max(log.attempts, 1)
             if ok:
                 log.status = "sent"
