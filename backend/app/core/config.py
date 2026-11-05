@@ -1,4 +1,6 @@
-from pydantic import Field
+import json
+
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -22,9 +24,21 @@ class Settings(BaseSettings):
     timezone: str = "Europe/Minsk"
     telegram_auth_max_age_seconds: int = 86400
 
-    cors_origins: list[str] = Field(
+    cors_origins: list[str] | str = Field(
         default_factory=lambda: ["http://localhost:5173", "http://127.0.0.1:5173"]
     )
+
+    @field_validator("cors_origins", mode="before")
+    @classmethod
+    def _parse_cors_origins(cls, value: object) -> object:
+        if isinstance(value, str):
+            raw = value.strip()
+            if not raw:
+                return ["http://localhost:5173", "http://127.0.0.1:5173"]
+            if raw.startswith("["):
+                return json.loads(raw)
+            return [part.strip() for part in raw.split(",") if part.strip()]
+        return value
 
     @property
     def admin_telegram_id_list(self) -> list[int]:

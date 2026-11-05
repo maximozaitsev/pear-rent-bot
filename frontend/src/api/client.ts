@@ -11,7 +11,7 @@ import type {
   WeeklyScheduleItem,
 } from "./types";
 
-const API_BASE = (import.meta.env.VITE_API_BASE_URL as string | undefined) ?? "http://localhost:8000/api/v1";
+const API_BASE = (import.meta.env.VITE_API_BASE_URL as string | undefined) ?? "/api/v1";
 const TOKEN_KEY = "pear_rent_token";
 
 export class ApiError extends Error {

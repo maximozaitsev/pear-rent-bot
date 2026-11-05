@@ -20,7 +20,7 @@ services:
       context: .
       dockerfile: docker/backend.Dockerfile
     env_file:
-      - .env.example
+      - .env
     environment:
       DATABASE_URL: postgresql+psycopg://postgres:postgres@db:5432/pear_rent
     ports:
@@ -36,8 +36,13 @@ services:
     build:
       context: .
       dockerfile: docker/frontend.Dockerfile
+    env_file:
+      - .env
     environment:
-      VITE_API_BASE_URL: http://localhost:8000/api/v1
+      # Relative base uses Vite proxy -> backend service; works with a single ngrok URL.
+      VITE_API_BASE_URL: ${VITE_API_BASE_URL:-/api/v1}
+      VITE_DEV_PROXY_TARGET: ${VITE_DEV_PROXY_TARGET:-http://backend:8000}
+      VITE_TELEGRAM_BOT_USERNAME: ${VITE_TELEGRAM_BOT_USERNAME:-}
     ports:
       - "5173:5173"
     depends_on:
@@ -45,6 +50,7 @@ services:
     volumes:
       - ./frontend/src:/app/src
       - ./frontend/index.html:/app/index.html
+      - ./frontend/vite.config.ts:/app/vite.config.ts
 
 volumes:
   pgdata:

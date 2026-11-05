@@ -21,8 +21,9 @@ async def handle_start(message: Message, command: CommandObject) -> None:
     start_param = command.args
     invite_token = extract_invite_token(start_param)
     builder = ReplyKeyboardBuilder()
-    mini_app_url = settings.telegram_mini_app_url
-    can_open = mini_app_url and mini_app_url != "https://example.com"
+    mini_app_url = (settings.telegram_mini_app_url or "").rstrip("/")
+    # Telegram requires HTTPS for WebApp keyboard buttons; localhost HTTP is invalid.
+    can_open = mini_app_url.startswith("https://") and "example.com" not in mini_app_url
     if can_open:
         url = mini_app_url
         if invite_token:
@@ -30,6 +31,10 @@ async def handle_start(message: Message, command: CommandObject) -> None:
             sep = "&" if "?" in url else "?"
             url = f"{url}{sep}invite_token={invite_token}"
         builder.row(KeyboardButton(text="Открыть приложение", web_app=WebAppInfo(url=url)))
+    elif mini_app_url and not can_open:
+        logger.info(
+            "Mini App URL is not a valid HTTPS Telegram WebApp URL; sending /start without button"
+        )
 
     if invite_token:
         text = (
