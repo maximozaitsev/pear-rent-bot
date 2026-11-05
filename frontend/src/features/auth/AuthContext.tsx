@@ -21,17 +21,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const refresh = () => setNonce((n) => n + 1);
 
   useEffect(() => {
-    const tg = getTelegramWebApp();
-    tg?.ready();
-    tg?.expand();
-    const initData = tg?.initData;
-    const inviteToken = getInviteToken();
-    if (!initData) {
-      setState({ status: "anonymous", reason: "Откройте приложение внутри Telegram.", inviteToken });
-      return;
-    }
     (async () => {
       try {
+        const tg = getTelegramWebApp();
+        tg?.ready();
+        tg?.expand();
+        const initData = tg?.initData;
+        const inviteToken = getInviteToken();
+        if (!initData) {
+          setState({
+            status: "anonymous",
+            reason:
+              "Откройте приложение из Telegram (кнопка бота/меню). В браузере авторизация недоступна.",
+            inviteToken,
+          });
+          return;
+        }
         if (!getToken()) {
           const auth = await api.authTelegram(initData, tg?.initDataUnsafe?.start_param ?? inviteToken);
           setToken(auth.access_token);
@@ -42,6 +47,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setState({ status: "ready", user });
       } catch (e) {
         setToken(null);
+        const inviteToken = getInviteToken();
         if (e instanceof ApiError && e.status === 403) {
           const detail = e.detail as { code?: string; message?: string } | string;
           const code = typeof detail === "object" ? detail.code : null;
@@ -52,6 +58,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           }
         }
         try {
+          const tg = getTelegramWebApp();
+          const initData = tg?.initData;
+          if (!initData) {
+            setState({ status: "anonymous", reason: "Нет данных Telegram. Откройте Mini App из Telegram.", inviteToken });
+            return;
+          }
           const auth = await api.authTelegram(initData, tg?.initDataUnsafe?.start_param ?? inviteToken);
           setToken(auth.access_token);
           setState({ status: "ready", user: auth.user });
@@ -61,7 +73,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             const message = typeof detail === "object" ? detail.message : String(detail);
             setState({ status: "anonymous", reason: message || "Доступ выдаётся администратором.", inviteToken });
           } else {
-            setState({ status: "anonymous", reason: e2 instanceof Error ? e2.message : "Ошибка авторизации", inviteToken });
+            const msg = e2 instanceof Error ? e2.message : "Ошибка авторизации";
+            setState({ status: "anonymous", reason: `Не удалось войти: ${msg}`, inviteToken });
           }
         }
       }
