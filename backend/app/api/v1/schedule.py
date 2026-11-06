@@ -34,7 +34,7 @@ def schedule_day(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    return day_schedule(db, day, viewer_role=user.role)
+    return day_schedule(db, day, viewer=user)
 
 
 @router.get("/schedule/weekly")
@@ -44,7 +44,7 @@ def schedule_weekly(
     user: User = Depends(get_current_user),
 ):
     start = week - timedelta(days=week.weekday())
-    days = [day_schedule(db, start + timedelta(days=i), viewer_role=user.role) for i in range(7)]
+    days = [day_schedule(db, start + timedelta(days=i), viewer=user) for i in range(7)]
     return {"week_start": start.isoformat(), "days": days}
 
 
@@ -66,6 +66,6 @@ def availability(
     days = []
     cur = from_date
     while cur <= to_date:
-        days.append(day_schedule(db, cur, viewer_role=user.role))
+        days.append(day_schedule(db, cur, viewer=user))
         cur += timedelta(days=1)
     return {"from": from_date.isoformat(), "to": to_date.isoformat(), "days": days}

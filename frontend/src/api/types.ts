@@ -40,6 +40,7 @@ export interface DayBooking {
   currency?: string;
   payment_status?: string;
   status?: string;
+  is_mine?: boolean;
   renter?: {
     id: string;
     telegram_id: number;
@@ -55,6 +56,7 @@ export interface ChairDay {
   is_fully_booked: boolean;
   is_partially_booked: boolean;
   is_free_whole_day: boolean;
+  can_book_full_day?: boolean;
   busy_intervals: Interval[];
   free_intervals: Interval[];
   bookings: DayBooking[];

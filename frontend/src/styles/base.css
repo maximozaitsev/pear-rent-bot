@@ -118,8 +118,9 @@ h3 { font-size: 0.95rem; font-weight: 600; }
 .daycell .wd { font-size: 0.68rem; color: var(--hint); text-transform: var(--caps); font-weight: 650; letter-spacing: var(--track); }
 .daycell .num { font-family: var(--display); font-size: 1.05rem; font-weight: var(--disp-weight); }
 .daycell.today .num { color: var(--accent); }
-.daycell.selected { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 9%, var(--surface)); box-shadow: inset 0 var(--sel-bar) 0 var(--accent); }
 .daycell.picked { border-color: var(--warn); background: color-mix(in srgb, var(--warn) 12%, var(--surface)); box-shadow: inset 0 var(--sel-bar) 0 var(--warn); }
+.daycell.own { border-color: var(--ok); }
+.daycell.selected, .daycell.own.selected { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 9%, var(--surface)); box-shadow: inset 0 var(--sel-bar) 0 var(--accent); }
 .daycell.outside, .daycell:disabled { opacity: 0.38; background: var(--surface-2); }
 .daycell.outside .num, .daycell.outside .wd { color: var(--hint); }
 .daycell:disabled { cursor: default; }
@@ -130,8 +131,9 @@ h3 { font-size: 0.95rem; font-weight: 600; }
 .daypill .wd { font-size: 0.7rem; color: var(--hint); text-transform: var(--caps); font-weight: 650; letter-spacing: var(--track); }
 .daypill .num { font-family: var(--display); font-size: 1.2rem; font-weight: var(--disp-weight); }
 .daypill.today .num { color: var(--accent); }
-.daypill.selected { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 9%, var(--surface)); box-shadow: inset 0 var(--sel-bar) 0 var(--accent); }
 .daypill.picked { border-color: var(--warn); background: color-mix(in srgb, var(--warn) 12%, var(--surface)); box-shadow: inset 0 var(--sel-bar) 0 var(--warn); }
+.daypill.own { border-color: var(--ok); }
+.daypill.selected, .daypill.own.selected { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 9%, var(--surface)); box-shadow: inset 0 var(--sel-bar) 0 var(--accent); }
 .daypill:disabled { opacity: 0.38; cursor: default; }
 .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--line); }
 .dot.free { background: var(--ok); } .dot.partial { background: var(--warn); } .dot.busy { background: var(--bad); } .dot.closed { background: var(--line); }

@@ -1,5 +1,5 @@
 // Логика выбора слотов и формат datetime (БЕЗ "Z", Europe/Minsk) сохранены без изменений.
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { ChairDay, DaySchedule } from "../../api/types";
 import { api } from "../../api/client";
 import { buildHourSlots, calcHourlyPrice, formatMoney } from "./time";
@@ -15,6 +15,21 @@ function slotCovers(startLocal: string, endLocal: string, free: { starts_at: str
   return free.some((f) => s >= hourRange(f.starts_at) && e <= hourRange(f.ends_at));
 }
 
+function subtractIntervals(free: { starts_at: string; ends_at: string }[], busy: { starts_at: string; ends_at: string }[]): { starts_at: string; ends_at: string }[] {
+  let res = free.map((f) => ({ starts_at: hourRange(f.starts_at), ends_at: hourRange(f.ends_at) }));
+  for (const b of busy) {
+    const bs = hourRange(b.starts_at), be = hourRange(b.ends_at);
+    const next: { starts_at: string; ends_at: string }[] = [];
+    for (const f of res) {
+      if (be <= f.starts_at || bs >= f.ends_at) { next.push(f); continue; }
+      if (bs > f.starts_at) next.push({ starts_at: f.starts_at, ends_at: bs });
+      if (be < f.ends_at) next.push({ starts_at: be, ends_at: f.ends_at });
+    }
+    res = next;
+  }
+  return res.filter((f) => f.starts_at < f.ends_at);
+}
+
 export function ChairPicker({
   day, chair, onClose, onBooked, onStale,
 }: {
@@ -24,7 +39,17 @@ export function ChairPicker({
   onBooked: () => void;
   onStale: () => void | Promise<void>;
 }) {
-  const [mode, setMode] = useState<"full_day" | "hourly">(chair.is_free_whole_day ? "full_day" : "hourly");
+  const ownIntervals = useMemo(
+    () => day.chairs.flatMap((c) => c.bookings.filter((b) => b.is_mine).map((b) => ({ starts_at: b.starts_at, ends_at: b.ends_at }))),
+    [day],
+  );
+  const hasOwnPartial = ownIntervals.length > 0;
+  const effectiveFree = useMemo(() => {
+    if (!hasOwnPartial) return chair.free_intervals;
+    return subtractIntervals(chair.free_intervals, ownIntervals);
+  }, [chair.free_intervals, ownIntervals, hasOwnPartial]);
+
+  const [mode, setMode] = useState<"full_day" | "hourly">(hasOwnPartial ? "hourly" : chair.is_free_whole_day ? "full_day" : "hourly");
   const [startHour, setStartHour] = useState<string | null>(null);
   const [endHour, setEndHour] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -49,11 +74,13 @@ export function ChairPicker({
   const hourlyHours = startHour && endHour ? Math.max(0, Number(endHour.slice(0, 2)) - Number(startHour.slice(0, 2))) : 0;
   const hourlyStart = startHour ? `${day.date}T${startHour}:00` : null;
   const hourlyEnd = endHour ? `${day.date}T${endHour}:00` : null;
-  const hourlyValid = !!hourlyStart && !!hourlyEnd && hourlyHours >= 1 && slotCovers(hourlyStart, hourlyEnd, chair.free_intervals);
+  const hourlyValid = !!hourlyStart && !!hourlyEnd && hourlyHours >= 1 && slotCovers(hourlyStart, hourlyEnd, effectiveFree);
 
   const isPast = day.date < todayIso();
+  const hasOwnBooking = day.chairs.some((c) => c.bookings.some((b) => b.is_mine));
+  const canFullDay = !!chair.is_free_whole_day && !hasOwnBooking;
   const price = mode === "full_day" ? 6000 : hourlyHours > 0 ? calcHourlyPrice(hourlyHours) : 0;
-  const canSubmit = !isPast && !busy && (mode === "hourly" ? hourlyValid : chair.is_free_whole_day);
+  const canSubmit = !isPast && !busy && (mode === "hourly" ? hourlyValid : canFullDay);
 
   async function submit() {
     if (isPast) { setError("Нельзя записаться на прошедший день"); return; }
@@ -105,9 +132,10 @@ export function ChairPicker({
       ) : (
         <>
           <div className="segmented">
-            <button className={mode === "full_day" ? "active" : ""} disabled={!chair.is_free_whole_day} onClick={() => setMode("full_day")}>Весь день</button>
+            <button className={mode === "full_day" ? "active" : ""} disabled={!canFullDay} onClick={() => setMode("full_day")}>Весь день</button>
             <button className={mode === "hourly" ? "active" : ""} disabled={chair.is_fully_booked} onClick={() => setMode("hourly")}>По часам</button>
           </div>
+          {hasOwnBooking && !canFullDay && <p className="muted small">В этот день у вас уже есть запись — бронирование на весь день недоступно.</p>}
 
           {mode === "full_day" && (
             <div className="stack">
@@ -124,7 +152,7 @@ export function ChairPicker({
                   const start = `${day.date}T${slot}:00`;
                   const h = Number(slot.slice(0, 2));
                   const end = `${day.date}T${String(h + 1).padStart(2, "0")}:00`;
-                  const free = slotCovers(start, end, chair.free_intervals);
+                  const free = slotCovers(start, end, effectiveFree);
                   const selected = startHour && ((endHour && slot >= startHour && slot < endHour) || (!endHour && slot === startHour));
                   return (
                     <button key={slot} className={`slot ${free ? "" : "busy"} ${selected ? "selected" : ""}`} disabled={!free} onClick={() => selectHour(slot)}>

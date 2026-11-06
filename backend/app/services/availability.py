@@ -3,7 +3,7 @@ from datetime import date, datetime, time
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models import Booking, BookingStatus, Chair, UserRole
+from app.models import Booking, BookingStatus, Chair, User, UserRole
 from app.services.schedule import WorkingHours, combine_local, get_working_hours, localize_shop
 
 
@@ -68,7 +68,7 @@ def free_intervals(
     return result
 
 
-def day_schedule(db: Session, day: date, *, viewer_role: UserRole) -> dict:
+def day_schedule(db: Session, day: date, *, viewer: User) -> dict:
     hours = get_working_hours(db, day)
     chairs = list_active_chairs(db)
     all_bookings = bookings_for_day(db, day)
@@ -82,6 +82,7 @@ def day_schedule(db: Session, day: date, *, viewer_role: UserRole) -> dict:
         busy_bookings = by_chair.get(chair.id, [])
         busy_intervals = [(b.starts_at, b.ends_at) for b in busy_bookings]
         free = free_intervals(hours, busy_intervals)
+        has_mine = any(b.renter_id == viewer.id for b in busy_bookings)
         bookings_payload = []
         for b in busy_bookings:
             item = {
@@ -91,7 +92,7 @@ def day_schedule(db: Session, day: date, *, viewer_role: UserRole) -> dict:
                 "booking_type": b.booking_type.value,
                 "duration_hours": b.duration_hours,
             }
-            if viewer_role == UserRole.admin:
+            if viewer.role == UserRole.admin:
                 renter = b.renter
                 item["renter"] = {
                     "id": str(renter.id),
@@ -104,6 +105,8 @@ def day_schedule(db: Session, day: date, *, viewer_role: UserRole) -> dict:
                 item["currency"] = b.currency
                 item["payment_status"] = b.payment_status.value
                 item["status"] = b.status.value
+            if b.renter_id == viewer.id:
+                item["is_mine"] = True
             bookings_payload.append(item)
 
         fully_booked = hours.is_open and len(free) == 0 and len(busy_bookings) > 0
@@ -114,6 +117,7 @@ def day_schedule(db: Session, day: date, *, viewer_role: UserRole) -> dict:
                 "is_fully_booked": fully_booked,
                 "is_partially_booked": hours.is_open and len(busy_bookings) > 0 and len(free) > 0,
                 "is_free_whole_day": hours.is_open and len(busy_bookings) == 0,
+                "can_book_full_day": hours.is_open and len(busy_bookings) == 0 and not has_mine,
                 "busy_intervals": [
                     {
                         "starts_at": localize_shop(s).isoformat(),

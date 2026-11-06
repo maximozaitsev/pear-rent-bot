@@ -255,6 +255,8 @@ export function MonthGrid({
   dotVariant,
   pickedChairId,
   pickedChairByDate,
+  renterOwn,
+  renterOwnDates,
 }: {
   month: Date;
   daysByDate: Record<string, DaySchedule | undefined>;
@@ -266,6 +268,8 @@ export function MonthGrid({
   dotVariant?: DotVariant;
   pickedChairId?: string;
   pickedChairByDate?: Map<string, string>;
+  renterOwn?: (d: DaySchedule) => boolean;
+  renterOwnDates?: Set<string>;
 }) {
   const today = todayIso();
   const weeks = monthGridWeeks(month);
@@ -278,15 +282,17 @@ export function MonthGrid({
             const d = daysByDate[cell.date];
             const p = dayParts(cell.date);
             const picked = pickedDates?.has(cell.date);
-            const pickable = picking ? !!d && !!cell.inMonth && (!canPickDate || canPickDate(d)) : !!d && cell.inMonth;
+            const own = renterOwnDates ? renterOwnDates.has(cell.date) : !!d && !!renterOwn?.(d);
+            const pickable = picking ? !!d && !!cell.inMonth && !own && (!canPickDate || canPickDate(d)) : !!d && cell.inMonth;
             const disabled = !cell.inMonth || !d || !!loading || (picking && !pickable);
+            const pickedClass = picking ? (own ? "own picked" : picked ? "picked" : "") : own ? "own" : "";
             return (
               <button
                 key={cell.date}
                 type="button"
-                className={`daycell ${selected === cell.date ? "selected" : ""} ${cell.date === today ? "today" : ""} ${!cell.inMonth ? "outside" : ""} ${picked ? "picked" : ""}`}
+                className={`daycell ${selected === cell.date ? "selected" : ""} ${cell.date === today ? "today" : ""} ${!cell.inMonth ? "outside" : ""} ${pickedClass}`}
                 disabled={disabled}
-                onClick={() => { if (d && cell.inMonth) { haptic(); onSelect(d); } }}
+                onClick={() => { if (d && cell.inMonth && !(picking && own)) { haptic(); onSelect(d); } }}
               >
                 <span className="wd">{p.wd}</span>
                 <span className="num">{p.num}</span>
@@ -301,8 +307,8 @@ export function MonthGrid({
 }
 
 export function DayStrip({
-  days, selected, onSelect, counts, pickedDates, canPickDate, dotVariant, pickedChairId, pickedChairByDate,
-}: { days: DaySchedule[]; selected: string; onSelect: (d: DaySchedule) => void; counts?: Record<string, number>; pickedDates?: Set<string>; canPickDate?: (d: DaySchedule) => boolean; dotVariant?: DotVariant; pickedChairId?: string; pickedChairByDate?: Map<string, string> }) {
+  days, selected, onSelect, counts, pickedDates, canPickDate, dotVariant, pickedChairId, pickedChairByDate, renterOwn, renterOwnDates,
+}: { days: DaySchedule[]; selected: string; onSelect: (d: DaySchedule) => void; counts?: Record<string, number>; pickedDates?: Set<string>; canPickDate?: (d: DaySchedule) => boolean; dotVariant?: DotVariant; pickedChairId?: string; pickedChairByDate?: Map<string, string>; renterOwn?: (d: DaySchedule) => boolean; renterOwnDates?: Set<string> }) {
   const today = todayIso();
   const picking = !!pickedDates;
   return (
@@ -311,9 +317,11 @@ export function DayStrip({
         const p = dayParts(d.date);
         const n = counts?.[d.date] ?? 0;
         const picked = pickedDates?.has(d.date);
-        const pickable = picking ? (!canPickDate || canPickDate(d)) : true;
+        const own = renterOwnDates ? renterOwnDates.has(d.date) : !!renterOwn?.(d);
+        const pickable = picking ? (!own && (!canPickDate || canPickDate(d))) : true;
+        const pickedClass = picking ? (own ? "own picked" : picked ? "picked" : "") : own ? "own" : "";
         return (
-          <button key={d.date} className={`daypill ${selected === d.date ? "selected" : ""} ${d.date === today ? "today" : ""} ${picked ? "picked" : ""}`} disabled={picking && !pickable} onClick={() => { haptic(); onSelect(d); }}>
+          <button key={d.date} className={`daypill ${selected === d.date ? "selected" : ""} ${d.date === today ? "today" : ""} ${pickedClass}`} disabled={picking && !pickable} onClick={() => { if (!(picking && own)) { haptic(); onSelect(d); } }}>
             <span className="wd">{p.wd}</span>
             <span className="num">{p.num}</span>
             <ChairDots day={d} variant={dotVariant} picked={picked} pickedChairId={pickedChairId} pickedChairByDate={pickedChairByDate} />

@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { api } from "../../api/client";
-import type { ChairDay, DaySchedule } from "../../api/types";
+import type { ChairDay, DayBooking, DaySchedule } from "../../api/types";
 import { addDays, firstOfMonth, formatMoney, formatTime, monthGridWeeks } from "./time";
 import { ChairPicker } from "./ChairPicker";
-import { Banner, DayStrip, Empty, Icon, Loader, MonthGrid, WeekNav, dayParts, errorText, haptic, todayIso, type PeriodMode } from "../../shared/ui";
+import { Banner, DayStrip, Empty, Icon, Loader, MonthGrid, Sheet, WeekNav, dayParts, errorText, haptic, todayIso, type PeriodMode } from "../../shared/ui";
 
 function todayStart(): Date {
   const n = new Date();
@@ -28,6 +28,8 @@ export function RenterSchedule({ refreshKey }: { refreshKey?: number }) {
   const [monthDays, setMonthDays] = useState<Record<string, DaySchedule>>({});
   const [selectedDate, setSelectedDate] = useState("");
   const [picker, setPicker] = useState<{ day: DaySchedule; chair: ChairDay } | null>(null);
+  const [mineSheet, setMineSheet] = useState<{ day: DaySchedule; chair: ChairDay; bookings: DayBooking[] } | null>(null);
+  const [cancelBusy, setCancelBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [selectMode, setSelectMode] = useState(false);
@@ -66,15 +68,32 @@ export function RenterSchedule({ refreshKey }: { refreshKey?: number }) {
 
   useEffect(() => { load(); }, [load, refreshKey]);
 
-  async function openChair(day: DaySchedule, chairId: string) {
+  async function openChair(day: DaySchedule, chairId: string, mineBookings?: DayBooking[]) {
     setError(null);
     try {
       const fresh = await api.scheduleDay(day.date);
       const chair = fresh.chairs.find((c) => c.chair_id === chairId);
-      setPicker(chair ? { day: fresh, chair } : null);
+      if (!chair) return;
+      const mine = mineBookings ?? chair.bookings.filter((b) => b.is_mine);
+      if (mine.length) setMineSheet({ day: fresh, chair, bookings: mine });
+      else setPicker({ day: fresh, chair });
     } catch (e) {
       setError(errorText(e));
     }
+  }
+
+  async function cancelMine(id: string) {
+    if (!confirm("Отменить бронь?")) return;
+    setCancelBusy(id); setError(null);
+    try {
+      await api.cancelBooking(id);
+      haptic("success");
+      setMineSheet(null);
+      await load();
+    } catch (e) {
+      haptic("error");
+      setError(errorText(e, "Не удалось отменить"));
+    } finally { setCancelBusy(null); }
   }
 
   const selectedDay = mode === "week" ? (weekDays.find((d) => d.date === selectedDate) ?? null) : (monthDays[selectedDate] ?? null);
@@ -102,14 +121,15 @@ export function RenterSchedule({ refreshKey }: { refreshKey?: number }) {
 
   function resolvePick(d: DaySchedule): PickedDay | null {
     if (d.date < today || !d.working_hours.is_open) return null;
+    if (myBookedDates.has(d.date)) return null;
     if (targetChairId) {
       const target = d.chairs.find((c) => c.chair_id === targetChairId);
-      if (target?.is_free_whole_day && targetChair) return { date: d.date, chairId: targetChairId, chairName: targetChair.name, isAlt: false };
-      const alt = d.chairs.find((c) => c.chair_id !== targetChairId && c.is_free_whole_day);
+      if ((target?.can_book_full_day ?? target?.is_free_whole_day) && targetChair) return { date: d.date, chairId: targetChairId, chairName: targetChair.name, isAlt: false };
+      const alt = d.chairs.find((c) => c.chair_id !== targetChairId && (c.can_book_full_day ?? c.is_free_whole_day));
       if (alt) return { date: d.date, chairId: alt.chair_id, chairName: alt.name, isAlt: true };
       return null;
     }
-    const any = d.chairs.find((c) => c.is_free_whole_day);
+    const any = d.chairs.find((c) => c.can_book_full_day ?? c.is_free_whole_day);
     return any ? { date: d.date, chairId: any.chair_id, chairName: any.name, isAlt: false } : null;
   }
 
@@ -127,8 +147,10 @@ export function RenterSchedule({ refreshKey }: { refreshKey?: number }) {
       if (next) {
         setTargetChairId((id) => id ?? allChairs[0]?.id ?? null);
         setPicked(new Map()); setBookingReport(null); setError(null);
+        setSelectedDate("");
       } else {
         setPicked(new Map()); setBookingReport(null);
+        setSelectedDate(todayIso());
       }
       return next;
     });
@@ -187,6 +209,11 @@ export function RenterSchedule({ refreshKey }: { refreshKey?: number }) {
   const pickedItems = Array.from(picked.values()).sort((a, b) => a.date.localeCompare(b.date));
   const altItems = pickedItems.filter((i) => i.isAlt);
   const pickedCount = pickedItems.length;
+  const myBookedDates = useMemo(() => {
+    const s = new Set<string>();
+    for (const d of Object.values(daysByDate)) if (d.chairs.some((c) => c.bookings.some((b) => b.is_mine))) s.add(d.date);
+    return s;
+  }, [daysByDate]);
 
   return (
     <>
@@ -212,11 +239,13 @@ export function RenterSchedule({ refreshKey }: { refreshKey?: number }) {
         <DayStrip
           days={weekDays}
           selected={selectedDate}
-          onSelect={onDayPick}
+          onSelect={selectMode ? onDayPick : (d) => setSelectedDate(d.date)}
           pickedDates={selectMode ? pickedDates : undefined}
           canPickDate={selectMode ? canPickDate : undefined}
           dotVariant="renter"
           pickedChairByDate={selectMode ? pickedChairByDate : undefined}
+          renterOwn={selectMode ? undefined : (d) => d.chairs.some((c) => c.bookings.some((b) => b.is_mine))}
+          renterOwnDates={selectMode ? myBookedDates : undefined}
         />
       )}
       {mode === "month" && (
@@ -224,12 +253,14 @@ export function RenterSchedule({ refreshKey }: { refreshKey?: number }) {
           month={monthAnchor}
           daysByDate={monthDays}
           selected={selectedDate}
-          onSelect={onDayPick}
+          onSelect={selectMode ? onDayPick : (d) => setSelectedDate(d.date)}
           loading={loading}
           pickedDates={selectMode ? pickedDates : undefined}
           canPickDate={selectMode ? canPickDate : undefined}
           dotVariant="renter"
           pickedChairByDate={selectMode ? pickedChairByDate : undefined}
+          renterOwn={selectMode ? undefined : (d) => d.chairs.some((c) => c.bookings.some((b) => b.is_mine))}
+          renterOwnDates={selectMode ? myBookedDates : undefined}
         />
       )}
 
@@ -292,25 +323,52 @@ export function RenterSchedule({ refreshKey }: { refreshKey?: number }) {
             <Empty icon="💺">Нет доступных кресел</Empty>
           ) : (
             <ul className="list">
-              {selectedDay.chairs.map((chair) => {
-                const st = chairStatus(chair);
-                const free = chair.free_intervals.map((f) => `${formatTime(f.starts_at)}–${formatTime(f.ends_at)}`).join(", ");
-                return (
-                  <li key={chair.chair_id}>
-                    <button className="item" disabled={chair.is_fully_booked} onClick={() => { haptic(); openChair(selectedDay, chair.chair_id); }}>
-                      <div className="grow">
-                        <div className="title">{chair.name}</div>
-                        <div className="meta">{chair.is_fully_booked ? "Нет свободного времени" : `Свободно: ${free || "—"}`}</div>
-                      </div>
-                      <span className={`chip ${st.tone}`}>{st.label}</span>
-                      {!chair.is_fully_booked && <Icon name="right" />}
-                    </button>
-                  </li>
-                );
-              })}
+              {(() => {
+                const ownChair = selectedDay.chairs.find((c) => c.bookings.some((b) => b.is_mine));
+                const ownFullDay = !!ownChair?.bookings.some((b) => b.is_mine && b.booking_type === "full_day");
+                return selectedDay.chairs.map((chair) => {
+                  const mine = chair.bookings.filter((b) => b.is_mine);
+                  const isMine = mine.length > 0;
+                  const blockedByOwn = !!ownChair && !isMine;
+                  const st = isMine ? { label: "Моё", tone: (mine.some((b) => b.booking_type === "full_day") || chair.is_fully_booked) ? "ok" as const : "warn" as const } : chairStatus(chair);
+                  const free = chair.free_intervals.map((f) => `${formatTime(f.starts_at)}–${formatTime(f.ends_at)}`).join(", ");
+                  const disabled = isMine ? false : chair.is_fully_booked || (blockedByOwn && (ownFullDay || chair.is_fully_booked));
+                  return (
+                    <li key={chair.chair_id}>
+                      <button className="item" disabled={disabled} onClick={() => { haptic(); openChair(selectedDay, chair.chair_id, mine); }}>
+                        <div className="grow">
+                          <div className="title">{chair.name}{blockedByOwn && ownChair ? <span className="muted small"> (Уже есть бронь {ownChair.name})</span> : ""}</div>
+                          <div className="meta">{isMine ? `Забронировано: ${mine.map((b) => `${formatTime(b.starts_at)}–${formatTime(b.ends_at)}`).join(", ")}` : chair.is_fully_booked ? "Нет свободного времени" : blockedByOwn && !ownFullDay ? `Доступно по часам: ${free || "—"}` : `Свободно: ${free || "—"}`}</div>
+                        </div>
+                        <span className={`chip ${st.tone}`}>{st.label}</span>
+                        {(isMine || !disabled) && <Icon name="right" />}
+                      </button>
+                    </li>
+                  );
+                });
+              })()}
             </ul>
           )}
         </>
+      )}
+
+      {mineSheet && (
+        <Sheet title={`${mineSheet.chair.name} · ${dayParts(mineSheet.day.date).long}`} onClose={() => setMineSheet(null)}>
+          <Banner kind="ok">Часы забронированы за вами.</Banner>
+          <ul className="list">
+            {mineSheet.bookings.map((b) => (
+              <li key={b.id} className="item" style={{ cursor: "default" }}>
+                <div className="grow">
+                  <div className="title">{formatTime(b.starts_at)}–{formatTime(b.ends_at)}</div>
+                  <div className="meta">{b.booking_type === "full_day" ? "Весь день" : `${b.duration_hours} ч`}</div>
+                </div>
+                <button className="btn btn-sm btn-danger" disabled={cancelBusy === b.id} onClick={() => cancelMine(b.id)}>
+                  {cancelBusy === b.id ? "..." : "Отменить бронь"}
+                </button>
+              </li>
+            ))}
+          </ul>
+        </Sheet>
       )}
 
       {picker && (
