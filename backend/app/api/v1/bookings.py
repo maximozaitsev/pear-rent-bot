@@ -23,6 +23,7 @@ from app.services.bookings import (
     list_my_bookings,
     update_payment_status,
 )
+from app.services.schedule import localize_shop
 
 router = APIRouter()
 
@@ -44,8 +45,8 @@ def _booking_out(booking: Booking, *, viewer: User) -> BookingOut:
         id=str(booking.id),
         chair_id=str(booking.chair_id),
         renter_id=str(booking.renter_id),
-        starts_at=booking.starts_at.isoformat(),
-        ends_at=booking.ends_at.isoformat(),
+        starts_at=localize_shop(booking.starts_at).isoformat(),
+        ends_at=localize_shop(booking.ends_at).isoformat(),
         booking_type=booking.booking_type.value,
         duration_hours=booking.duration_hours,
         price_amount=booking.price_amount if show_owner_private else 0,

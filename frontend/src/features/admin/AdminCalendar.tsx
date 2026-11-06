@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { api } from "../../api/client";
 import type { Booking, ChairDay, DaySchedule } from "../../api/types";
 import { addDays, firstOfMonth, formatMoney, formatTime, isoDate, mondayOf, monthGridWeeks } from "../schedule/time";
@@ -82,6 +82,27 @@ export function AdminCalendar({ defaultMode }: { defaultMode?: PeriodMode }) {
   const selectedDay = mode === "week" ? (days.find((d) => d.date === selectedDate) ?? null) : (monthDays[selectedDate] ?? null);
   const counts: Record<string, number> = {};
   for (const d of activeDays) counts[d.date] = d.chairs.reduce((n, c) => n + c.bookings.length, 0);
+
+  const periodStats = useMemo(() => {
+    const periodDays = mode === "week"
+      ? days
+      : Object.values(monthDays).filter((d) => {
+          const y = monthAnchor.getUTCFullYear(), m = monthAnchor.getUTCMonth() + 1;
+          return d.date.startsWith(`${y}-${String(m).padStart(2, "0")}-`);
+        });
+    let freeSlots = 0, toPay = 0, paid = 0;
+    for (const d of periodDays) {
+      if (!d.working_hours.is_open) continue;
+      for (const c of d.chairs) {
+        if (c.is_free_whole_day) freeSlots++;
+        for (const b of c.bookings) {
+          const amount = b.price_amount ?? 0;
+          if (b.payment_status === "paid") paid += amount; else toPay += amount;
+        }
+      }
+    }
+    return { freeSlots, toPay, paid };
+  }, [mode, days, monthDays, monthAnchor]);
 
   return (
     <>
