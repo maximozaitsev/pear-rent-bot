@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { api } from "../../api/client";
 import type { ChairDay, DayBooking, DaySchedule } from "../../api/types";
-import { addDays, firstOfMonth, formatMoney, formatTime, monthGridWeeks } from "./time";
+import { addDays, firstOfMonth, formatMoney, formatTime, monthGridWeeks, type PeriodMode } from "./time";
 import { ChairPicker } from "./ChairPicker";
-import { Banner, DayStrip, Empty, Icon, MonthGrid, Sheet, WeekNav, dayParts, errorText, haptic, todayIso, type PeriodMode } from "../../shared/ui";
+import { Banner, DayStrip, Empty, Icon, MonthGrid, Sheet, WeekNav, dayParts, errorText, haptic, todayIso } from "../../shared/ui";
 
 function todayStart(): Date {
   const n = new Date();
@@ -20,8 +20,8 @@ type PickedDay = { date: string; chairId: string; chairName: string; isAlt: bool
 
 const FULL_DAY_PRICE = 6000;
 
-export function RenterSchedule({ refreshKey }: { refreshKey?: number }) {
-  const [mode, setMode] = useState<PeriodMode>("week");
+export function RenterSchedule({ refreshKey, defaultMode }: { refreshKey?: number; defaultMode?: PeriodMode }) {
+  const [mode, setMode] = useState<PeriodMode>(defaultMode ?? "week");
   const [weekStart, setWeekStart] = useState(() => todayStart());
   const [monthAnchor, setMonthAnchor] = useState(() => firstOfMonth(new Date()));
   const [weekDays, setWeekDays] = useState<DaySchedule[]>([]);

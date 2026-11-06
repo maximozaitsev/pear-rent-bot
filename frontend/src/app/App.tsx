@@ -5,10 +5,10 @@ import type { Booking } from "../api/types";
 import { useAuth } from "../features/auth/AuthContext";
 import { RegisterGate } from "../features/auth/RegisterGate";
 import { RenterSchedule } from "../features/schedule/RenterSchedule";
-import { formatMoney, formatTime } from "../features/schedule/time";
+import { formatMoney, formatTime, readDefaultPeriod, writeDefaultPeriod, type PeriodMode } from "../features/schedule/time";
 import { MyBookings } from "../features/bookings/MyBookings";
 import { AdminApp } from "../features/admin/AdminApp";
-import { Loader, TabBar, TopBar, dayParts, todayIso } from "../shared/ui";
+import { Icon, Loader, Sheet, TabBar, TopBar, dayParts, todayIso } from "../shared/ui";
 
 function relDay(iso: string): { label: string; tone: "accent" | "mute" } {
   const diff = Math.round(
@@ -78,20 +78,41 @@ function NearestBooking({ refreshKey }: { refreshKey: number }) {
   );
 }
 
+function DefaultPeriodSheet({ value, onPick, onClose }: { value: PeriodMode; onPick: (m: PeriodMode) => void; onClose: () => void }) {
+  return (
+    <Sheet title="Вид календаря по умолчанию" onClose={onClose}>
+      <p className="muted small">Выберите, какая раскладка открывается на странице расписания.</p>
+      <div className="segmented">
+        <button className={value === "week" ? "active" : ""} onClick={() => onPick("week")}>По неделе</button>
+        <button className={value === "month" ? "active" : ""} onClick={() => onPick("month")}>По месяцу</button>
+      </div>
+    </Sheet>
+  );
+}
+
 function RenterApp() {
+  const { state } = useAuth();
+  const userId = state.status === "ready" ? state.user.id : "anon";
   const [tab, setTab] = useState<"schedule" | "mine">("schedule");
   const [refreshKey, setRefreshKey] = useState(0);
+  const [defaultPeriod, setDefaultPeriod] = useState<PeriodMode>(() => readDefaultPeriod(userId));
+  const [settingsOpen, setSettingsOpen] = useState(false);
+
+  useEffect(() => { setDefaultPeriod(readDefaultPeriod(userId)); }, [userId]);
+  function pickDefault(m: PeriodMode) { setDefaultPeriod(m); writeDefaultPeriod(userId, m); setSettingsOpen(false); }
+
   return (
     <>
       <main className="app">
         <TopBar
           subtitle="Аренда кресла"
           title={tab === "schedule" ? "Расписание" : "Мои брони"}
+          action={tab === "schedule" ? <button className="icon-btn" onClick={() => setSettingsOpen(true)} aria-label="Настройки календаря"><Icon name="settings" /></button> : undefined}
         />
         {tab === "schedule" ? (
           <>
             <NearestBooking refreshKey={refreshKey} />
-            <RenterSchedule refreshKey={refreshKey} />
+            <RenterSchedule key={defaultPeriod} refreshKey={refreshKey} defaultMode={defaultPeriod} />
           </>
         ) : (
           <MyBookings onChanged={() => setRefreshKey((k) => k + 1)} />
@@ -105,6 +126,7 @@ function RenterApp() {
           { id: "mine", label: "Мои брони", icon: "list" },
         ]}
       />
+      {settingsOpen && <DefaultPeriodSheet value={defaultPeriod} onPick={pickDefault} onClose={() => setSettingsOpen(false)} />}
     </>
   );
 }

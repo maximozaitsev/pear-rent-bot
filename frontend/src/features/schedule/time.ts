@@ -87,6 +87,15 @@ export function isSlotBusy(startsAt: string, endsAt: string, busy: { starts_at: 
   return busy.some((b) => startsAt < b.ends_at && endsAt > b.starts_at);
 }
 
-export function isSlotInFree(startsAt: string, endsAt: string, free: { starts_at: string; ends_at: string }[]): boolean {
-  return free.some((f) => startsAt >= f.starts_at && endsAt <= f.ends_at);
+export type PeriodMode = "week" | "month";
+
+export function readDefaultPeriod(userId: string): PeriodMode {
+  try {
+    const v = localStorage.getItem(`pear_rent_period_${userId}`);
+    return v === "month" ? "month" : "week";
+  } catch { return "week"; }
+}
+
+export function writeDefaultPeriod(userId: string, mode: PeriodMode): void {
+  try { localStorage.setItem(`pear_rent_period_${userId}`, mode); } catch { /* ignore */ }
 }

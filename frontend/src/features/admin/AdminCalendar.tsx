@@ -27,8 +27,8 @@ function Occupancy({ day, bookings }: { day: DaySchedule; bookings: DB[] }) {
   );
 }
 
-export function AdminCalendar() {
-  const [mode, setMode] = useState<PeriodMode>("week");
+export function AdminCalendar({ defaultMode }: { defaultMode?: PeriodMode }) {
+  const [mode, setMode] = useState<PeriodMode>(defaultMode ?? "week");
   const [weekStart, setWeekStart] = useState(() => mondayOf(new Date()));
   const [monthAnchor, setMonthAnchor] = useState(() => firstOfMonth(new Date()));
   const [days, setDays] = useState<DaySchedule[]>([]);

@@ -111,11 +111,14 @@ export function Icon({ name }: { name: keyof typeof ICONS | string }) {
 }
 
 /* ---------- layout pieces ---------- */
-export function TopBar({ title, subtitle }: { title: string; subtitle?: string }) {
+export function TopBar({ title, subtitle, action }: { title: string; subtitle?: string; action?: ReactNode }) {
   return (
     <header className="topbar">
       {subtitle && <span className="sub">{subtitle}</span>}
-      <h1>{title}</h1>
+      <div className="row between">
+        <h1>{title}</h1>
+        {action}
+      </div>
     </header>
   );
 }
@@ -175,7 +178,8 @@ export function Loader() {
   return <div className="spinner" role="status" aria-label="Загрузка" />;
 }
 
-export type PeriodMode = "week" | "month";
+import type { PeriodMode } from "../features/schedule/time";
+export type { PeriodMode };
 
 export function WeekNav({
   weekStart,
