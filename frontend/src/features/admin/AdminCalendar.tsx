@@ -3,7 +3,7 @@ import { api } from "../../api/client";
 import type { Booking, ChairDay, DaySchedule } from "../../api/types";
 import { addDays, firstOfMonth, formatMoney, formatTime, isoDate, mondayOf, monthGridWeeks } from "../schedule/time";
 import { BookingCard } from "./BookingCard";
-import { Banner, DayStrip, Empty, Loader, MonthGrid, Sheet, WeekNav, dayParts, errorText, haptic, personName, todayIso, type PeriodMode } from "../../shared/ui";
+import { Banner, DayStrip, Empty, MonthGrid, Sheet, WeekNav, dayParts, errorText, haptic, personName, todayIso, type PeriodMode } from "../../shared/ui";
 
 type DB = ChairDay["bookings"][number];
 
@@ -97,7 +97,13 @@ export function AdminCalendar() {
         onSelectToday={setSelectedDate}
       />
       {error && <Banner kind="bad" onRetry={load}>{error}</Banner>}
-      {loading && ((mode === "week" && !days.length) || (mode === "month" && Object.keys(monthDays).length === 0)) && <Loader />}
+      {loading && ((mode === "week" && !days.length) || (mode === "month" && Object.keys(monthDays).length === 0)) && (
+        <div className="stack" aria-hidden="true">
+          <div className="skeleton" style={{ height: mode === "week" ? 74 : 260 }} />
+          <div className="skeleton" />
+          <div className="skeleton" />
+        </div>
+      )}
 
       {(mode === "week" ? !!days.length : Object.keys(monthDays).length > 0 || !loading) && (
         <>

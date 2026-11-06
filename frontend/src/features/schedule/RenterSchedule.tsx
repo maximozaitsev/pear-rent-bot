@@ -3,7 +3,7 @@ import { api } from "../../api/client";
 import type { ChairDay, DayBooking, DaySchedule } from "../../api/types";
 import { addDays, firstOfMonth, formatMoney, formatTime, monthGridWeeks } from "./time";
 import { ChairPicker } from "./ChairPicker";
-import { Banner, DayStrip, Empty, Icon, Loader, MonthGrid, Sheet, WeekNav, dayParts, errorText, haptic, todayIso, type PeriodMode } from "../../shared/ui";
+import { Banner, DayStrip, Empty, Icon, MonthGrid, Sheet, WeekNav, dayParts, errorText, haptic, todayIso, type PeriodMode } from "../../shared/ui";
 
 function todayStart(): Date {
   const n = new Date();
@@ -233,7 +233,13 @@ export function RenterSchedule({ refreshKey }: { refreshKey?: number }) {
       />
       {error && <Banner kind="bad" onRetry={load}>{error}</Banner>}
       {bookingReport && <Banner kind="ok">{bookingReport}</Banner>}
-      {loading && ((mode === "week" && !weekDays.length) || (mode === "month" && Object.keys(monthDays).length === 0)) && <Loader />}
+      {loading && ((mode === "week" && !weekDays.length) || (mode === "month" && Object.keys(monthDays).length === 0)) && (
+        <div className="stack" aria-hidden="true">
+          <div className="skeleton" style={{ height: mode === "week" ? 74 : 260 }} />
+          <div className="skeleton" />
+          <div className="skeleton" />
+        </div>
+      )}
 
       {mode === "week" && !!weekDays.length && (
         <DayStrip
