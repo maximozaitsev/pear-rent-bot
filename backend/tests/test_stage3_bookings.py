@@ -71,7 +71,7 @@ def test_full_day_booking_and_second_chair_available(db, stage3_data):
         assert response.status_code == 201
         body = response.json()
         assert body["price_amount"] == 6000
-        assert body["payment_status"] is None
+        assert body["payment_status"] == "unpaid"
 
         day = client.get("/api/v1/schedule/day?date=2026-11-09", headers=headers).json()
         chairs = {c["chair_id"]: c for c in day["chairs"]}

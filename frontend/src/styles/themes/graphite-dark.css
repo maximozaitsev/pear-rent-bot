@@ -3,12 +3,37 @@
 @import "../base.css";
 :root {
   color-scheme: dark;
-  --bg: #0f1012; --surface: #17181b; --surface-2: #1d1f23;
-  --text: #eceef2; --hint: #8a8f9a; --line: #2a2c31; --soft: #202228;
-  --accent: #e5b25d; --on-accent: #17130b;
-  --ok: #5fc58a; --warn: #f0a24a; --bad: #ff6b66;
+  --bg: #0f1012;
+  --surface: #17181b;
+  --surface-2: #1d1f23;
+  --text: #eceef2;
+  --hint: #8a8f9a;
+  --line: #2a2c31;
+  --soft: #202228;
+  --accent: #e5b25d;
+  --on-accent: #17130b;
+  --ok: #5fc58a;
+  --warn: #f0a24a;
+  --bad: #ff6b66;
   --r: 12px;
-  --seg-bg: #2a2c33; --seg-fg: var(--text);
+  --seg-bg: #2a2c33;
+  --seg-fg: var(--text);
   --btn-bg: #202228;
 }
-.banner.info { background: var(--surface-2); }
+.banner.info {
+  background: var(--surface-2);
+}
+
+/* Ближайшая бронь: мягкое янтарное свечение с угла */
+.next-card:not(.is-empty) {
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--accent) 11%, var(--surface)),
+    var(--surface) 62%
+  );
+  border-color: color-mix(in srgb, var(--accent) 28%, var(--line));
+}
+.next-card:not(.is-empty) .date-badge {
+  background: var(--accent);
+  color: var(--on-accent);
+}

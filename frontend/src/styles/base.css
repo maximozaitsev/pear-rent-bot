@@ -220,3 +220,14 @@ button.item:active:not(:disabled) { background: var(--soft); }
 .matrix button.unpaid { background: color-mix(in srgb, var(--warn) 22%, transparent); color: var(--warn); }
 .matrix button.sel { outline: 2px solid var(--accent); }
 .code { word-break: break-all; font-family: ui-monospace, Menlo, monospace; font-size: 0.8rem; background: var(--soft); padding: 10px; border-radius: 10px; }
+
+/* ---------- next booking (hero card) ---------- */
+.next-card { position: relative; display: flex; align-items: center; gap: 14px; padding: 14px 14px 14px 18px; background: var(--surface); border: var(--bw) solid var(--line); border-radius: var(--r); box-shadow: var(--shadow); overflow: hidden; }
+.next-card::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 4px; background: var(--accent); }
+.next-label { font-size: 0.72rem; font-weight: 700; color: var(--hint); text-transform: var(--caps); letter-spacing: var(--track); }
+.next-time { font-family: var(--display); font-size: 1.6rem; font-weight: var(--disp-weight); line-height: 1.1; margin: 3px 0 2px; }
+.next-card .meta { color: var(--hint); font-size: 0.85rem; }
+.next-card.is-empty { background: transparent; box-shadow: none; border-style: dashed; padding-top: 12px; padding-bottom: 12px; }
+.next-card.is-empty::before { background: var(--line); }
+.next-card.is-empty .next-time { font-size: 1rem; font-family: var(--font); font-weight: 600; color: var(--hint); }
+.chip.accent { color: var(--accent); background: color-mix(in srgb, var(--accent) 14%, transparent); }

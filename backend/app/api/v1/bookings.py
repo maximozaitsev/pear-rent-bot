@@ -51,7 +51,7 @@ def _booking_out(booking: Booking, *, viewer: User) -> BookingOut:
         price_amount=booking.price_amount if show_owner_private else 0,
         currency=booking.currency,
         status=booking.status.value,
-        payment_status=booking.payment_status.value if show_admin else None,
+        payment_status=booking.payment_status.value if show_owner_private else None,
         renter=renter,
         created_by=str(booking.created_by) if show_admin else None,
         cancelled_by=str(booking.cancelled_by) if (show_admin and booking.cancelled_by) else None,

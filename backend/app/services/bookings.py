@@ -168,7 +168,7 @@ def list_my_bookings(db: Session, *, renter: User) -> list[Booking]:
         db.scalars(
             select(Booking)
             .where(Booking.renter_id == renter.id, Booking.status == BookingStatus.active)
-            .order_by(Booking.starts_at.desc())
+            .order_by(Booking.starts_at.asc())
         )
     )
 

@@ -1,11 +1,12 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { api } from "../../api/client";
 import type { Booking } from "../../api/types";
-import { formatMoney, formatTime } from "../schedule/time";
-import { Banner, Empty, dayParts, errorText, haptic } from "../../shared/ui";
+import { addMonths, firstOfMonth, formatMoney, formatTime, monthLabelRu } from "../schedule/time";
+import { Banner, Empty, Icon, dayParts, errorText, haptic } from "../../shared/ui";
 
 export function MyBookings({ onChanged }: { onChanged?: () => void }) {
   const [items, setItems] = useState<Booking[] | null>(null);
+  const [month, setMonth] = useState(() => firstOfMonth(new Date()));
   const [error, setError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
 
@@ -16,6 +17,17 @@ export function MyBookings({ onChanged }: { onChanged?: () => void }) {
   }
 
   useEffect(() => { load(); }, []);
+
+  const monthKey = `${month.getUTCFullYear()}-${String(month.getUTCMonth() + 1).padStart(2, "0")}`;
+  const monthItems = useMemo(() => (items ?? []).filter((b) => b.starts_at.slice(0, 7) === monthKey), [items, monthKey]);
+  const stats = useMemo(() => {
+    const days = new Set(monthItems.map((b) => b.starts_at.slice(0, 10)));
+    let toPay = 0, paid = 0;
+    for (const b of monthItems) {
+      if (b.payment_status === "paid") paid += b.price_amount; else toPay += b.price_amount;
+    }
+    return { workDays: days.size, toPay, paid };
+  }, [monthItems]);
 
   async function cancel(id: string) {
     if (!confirm("Отменить бронирование?")) return;
@@ -33,11 +45,21 @@ export function MyBookings({ onChanged }: { onChanged?: () => void }) {
 
   return (
     <>
+      <div className="weeknav">
+        <button className="icon-btn" onClick={() => setMonth((m) => addMonths(m, -1))} aria-label="Предыдущий месяц"><Icon name="left" /></button>
+        <div className="period-label" style={{ cursor: "default" }}><span>{monthLabelRu(month)} {month.getUTCFullYear()}</span></div>
+        <button className="icon-btn" onClick={() => setMonth((m) => addMonths(m, 1))} aria-label="Следующий месяц"><Icon name="right" /></button>
+      </div>
+      <section className="card" style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, textAlign: "center" }}>
+        <div><div className="muted small">Рабочих дней</div><div style={{ fontWeight: 700, fontSize: "1.1rem" }}>{stats.workDays}</div></div>
+        <div><div className="muted small">К оплате</div><div style={{ fontWeight: 700, fontSize: "1.1rem" }}>{formatMoney(stats.toPay)}</div></div>
+        <div><div className="muted small">Оплачено</div><div style={{ fontWeight: 700, fontSize: "1.1rem" }}>{formatMoney(stats.paid)}</div></div>
+      </section>
       {error && <Banner kind="bad" onRetry={load}>{error}</Banner>}
       {!items && !error && <><div className="skeleton" /><div className="skeleton" /></>}
-      {items?.length === 0 && <Empty icon="📭">Активных бронирований нет.<br />Выберите время на вкладке «Расписание».</Empty>}
+      {items && monthItems.length === 0 && <Empty icon="📭">В этом месяце броней нет.</Empty>}
       <ul className="list">
-        {items?.map((b) => {
+        {monthItems.map((b) => {
           const p = dayParts(b.starts_at.slice(0, 10));
           return (
             <li key={b.id} className="item">
