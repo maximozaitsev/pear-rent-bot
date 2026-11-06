@@ -1,12 +1,12 @@
 import { useEffect, useState } from "react";
 import { api } from "../../api/client";
-import type { Booking, Renter } from "../../api/types";
-import { formatMoney, formatTime } from "../schedule/time";
+import type { Booking, Renter, RenterPaymentStats } from "../../api/types";
+import { formatDateDot, formatMoney, formatTime } from "../schedule/time";
 import { Banner, Empty, Sheet, initials, errorText, haptic, personName } from "../../shared/ui";
 
 export function RentersAdmin() {
   const [items, setItems] = useState<Renter[] | null>(null);
-  const [selected, setSelected] = useState<{ renter: Renter; bookings: Booking[] } | null>(null);
+  const [selected, setSelected] = useState<{ renter: Renter; bookings: Booking[]; stats: RenterPaymentStats } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -41,7 +41,7 @@ export function RentersAdmin() {
                 <div className="avatar">{initials(name)}</div>
                 <div className="grow">
                   <div className="title">{name}</div>
-                  <div className="meta">{r.username ? `@${r.username}` : `ID ${r.telegram_id}`}</div>
+                  <div className="meta">{r.phone ?? "Телефон не указан"}{r.username ? ` · @${r.username}` : ""}</div>
                 </div>
                 <span className={`chip ${r.is_active ? "ok" : "mute"}`}>{r.is_active ? "активен" : "неактивен"}</span>
               </button>
@@ -53,11 +53,16 @@ export function RentersAdmin() {
       {selected && (
         <Sheet title={personName(selected.renter)} onClose={() => setSelected(null)}>
           <dl className="kv" style={{ margin: 0 }}>
+            <dt>Телефон</dt><dd>{selected.renter.phone ?? "Не указан"}</dd>
             <dt>Username</dt><dd>{selected.renter.username ? `@${selected.renter.username}` : "—"}</dd>
-            <dt>Telegram ID</dt><dd>{selected.renter.telegram_id}</dd>
-            <dt>Регистрация</dt><dd>{selected.renter.created_at.slice(0, 10)}</dd>
+            <dt>Регистрация</dt><dd>{formatDateDot(selected.renter.created_at)}</dd>
             <dt>Статус</dt><dd><span className={`chip ${selected.renter.is_active ? "ok" : "mute"}`}>{selected.renter.is_active ? "активен" : "неактивен"}</span></dd>
           </dl>
+          <section className="card" style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, textAlign: "center" }}>
+            <div><div className="muted small">Долг</div><div style={{ fontWeight: 700, fontSize: "1.1rem" }}>{formatMoney(selected.stats.debt)}</div></div>
+            <div><div className="muted small">К оплате</div><div style={{ fontWeight: 700, fontSize: "1.1rem" }}>{formatMoney(selected.stats.to_pay)}</div></div>
+            <div><div className="muted small">Оплачено всего</div><div style={{ fontWeight: 700, fontSize: "1.1rem" }}>{formatMoney(selected.stats.paid_total)}</div></div>
+          </section>
           <button className={`btn btn-block ${selected.renter.is_active ? "btn-danger" : "btn-primary"}`} disabled={busy} onClick={() => toggle(selected.renter)}>
             {selected.renter.is_active ? "Деактивировать (запрет новых броней)" : "Активировать"}
           </button>
@@ -68,7 +73,7 @@ export function RentersAdmin() {
             {selected.bookings.map((b) => (
               <li key={b.id} className="item-plain">
                 <div>
-                  <div style={{ fontWeight: 600 }}>{b.starts_at.slice(0, 10)} · {formatTime(b.starts_at)}–{formatTime(b.ends_at)}</div>
+                  <div style={{ fontWeight: 600 }}>{formatDateDot(b.starts_at)} · {formatTime(b.starts_at)}–{formatTime(b.ends_at)}</div>
                   <div className="muted small">{formatMoney(b.price_amount, b.currency)} · {b.status}</div>
                 </div>
                 <span className={`chip ${b.payment_status === "paid" ? "ok" : "warn"}`}>{b.payment_status === "paid" ? "оплачено" : "не оплачено"}</span>

@@ -33,6 +33,7 @@ export function AdminCalendar({ defaultMode }: { defaultMode?: PeriodMode }) {
   const [monthAnchor, setMonthAnchor] = useState(() => firstOfMonth(new Date()));
   const [days, setDays] = useState<DaySchedule[]>([]);
   const [monthDays, setMonthDays] = useState<Record<string, DaySchedule>>({});
+  const [loadedPeriod, setLoadedPeriod] = useState("");
   const [selectedDate, setSelectedDate] = useState("");
   const [selectedBooking, setSelectedBooking] = useState<Booking | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -42,12 +43,15 @@ export function AdminCalendar({ defaultMode }: { defaultMode?: PeriodMode }) {
     setLoading(true); setError(null);
     try {
       if (mode === "week") {
+        setDays([]);
         const week = await api.scheduleWeekly(isoDate(weekStart));
         setDays(week.days);
+        setLoadedPeriod(`w:${isoDate(weekStart)}`);
         setSelectedDate((prev) =>
           week.days.some((d) => d.date === prev) ? prev : week.days.find((d) => d.date === todayIso())?.date ?? week.days[0]?.date ?? "",
         );
       } else {
+        setMonthDays({});
         const weeks = monthGridWeeks(monthAnchor);
         const from = weeks[0][0].date;
         const to = weeks[weeks.length - 1][6].date;
@@ -56,6 +60,7 @@ export function AdminCalendar({ defaultMode }: { defaultMode?: PeriodMode }) {
         const map: Record<string, DaySchedule> = {};
         for (const d of [...a.days, ...b.days]) map[d.date] = d;
         setMonthDays(map);
+        setLoadedPeriod(`m:${monthAnchor.getUTCFullYear()}-${monthAnchor.getUTCMonth()}`);
         setSelectedDate((prev) => (map[prev] ? prev : (map[todayIso()] ? todayIso() : Object.keys(map).sort()[0] ?? "")));
       }
     } catch (e) { setError(errorText(e, "Ошибка загрузки")); }
@@ -118,6 +123,19 @@ export function AdminCalendar({ defaultMode }: { defaultMode?: PeriodMode }) {
         onSelectToday={setSelectedDate}
       />
       {error && <Banner kind="bad" onRetry={load}>{error}</Banner>}
+      {(() => {
+        const currentPeriod = mode === "week" ? `w:${isoDate(weekStart)}` : `m:${monthAnchor.getUTCFullYear()}-${monthAnchor.getUTCMonth()}`;
+        const statsReady = !loading && loadedPeriod === currentPeriod;
+        return !statsReady ? (
+          <div className="skeleton" style={{ height: 62 }} aria-hidden="true" />
+        ) : (
+          <section className="card" style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, textAlign: "center" }}>
+            <div><div className="muted small">Свободно мест</div><div style={{ fontWeight: 700, fontSize: "1.1rem" }}>{periodStats.freeSlots}</div></div>
+            <div><div className="muted small">Ждут оплаты</div><div style={{ fontWeight: 700, fontSize: "1.1rem" }}>{formatMoney(periodStats.toPay)}</div></div>
+            <div><div className="muted small">Оплачено</div><div style={{ fontWeight: 700, fontSize: "1.1rem" }}>{formatMoney(periodStats.paid)}</div></div>
+          </section>
+        );
+      })()}
       {loading && ((mode === "week" && !days.length) || (mode === "month" && Object.keys(monthDays).length === 0)) && (
         <div className="stack" aria-hidden="true">
           <div className="skeleton" style={{ height: mode === "week" ? 74 : 260 }} />

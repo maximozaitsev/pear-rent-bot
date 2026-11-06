@@ -112,8 +112,15 @@ export interface Renter {
   username: string | null;
   first_name: string | null;
   last_name: string | null;
+  phone: string | null;
   is_active: boolean;
   created_at: string;
+}
+
+export interface RenterPaymentStats {
+  debt: number;
+  to_pay: number;
+  paid_total: number;
 }
 
 export interface Invitation {

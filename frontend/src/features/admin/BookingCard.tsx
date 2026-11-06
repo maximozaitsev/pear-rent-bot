@@ -2,7 +2,7 @@
 import { useState } from "react";
 import { api } from "../../api/client";
 import type { Booking } from "../../api/types";
-import { formatMoney, formatTime } from "../schedule/time";
+import { formatDateDot, formatDateTimeDot, formatMoney, formatTime } from "../schedule/time";
 import { Banner, dayParts, errorText, haptic, personName } from "../../shared/ui";
 
 export function BookingCard({ booking, onChanged }: { booking: Booking; onChanged: () => void }) {
@@ -40,11 +40,11 @@ export function BookingCard({ booking, onChanged }: { booking: Booking; onChange
       </div>
 
       <dl className="kv" style={{ margin: 0 }}>
-        <dt>Дата</dt><dd>{dayParts(booking.starts_at.slice(0, 10)).long}</dd>
+        <dt>Дата</dt><dd>{dayParts(booking.starts_at.slice(0, 10)).long} ({formatDateDot(booking.starts_at)})</dd>
         <dt>Время</dt><dd>{formatTime(booking.starts_at)}–{formatTime(booking.ends_at)} · {booking.booking_type === "full_day" ? "весь день" : `${booking.duration_hours} ч`}</dd>
         <dt>Стоимость</dt><dd>{formatMoney(booking.price_amount, booking.currency)}</dd>
         <dt>Оплата</dt><dd><span className={`chip ${paid ? "ok" : "warn"}`}>{paid ? "Оплачено" : "Не оплачено"}</span></dd>
-        {booking.cancelled_at && <><dt>Отмена</dt><dd>{booking.cancelled_at.slice(0, 16).replace("T", " ")}{booking.cancellation_reason ? ` · ${booking.cancellation_reason}` : ""}</dd></>}
+        {booking.cancelled_at && <><dt>Отмена</dt><dd>{formatDateTimeDot(booking.cancelled_at)}{booking.cancellation_reason ? ` · ${booking.cancellation_reason}` : ""}</dd></>}
       </dl>
 
       {error && <Banner kind="bad">{error}</Banner>}

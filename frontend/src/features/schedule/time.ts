@@ -61,6 +61,17 @@ export function formatDateRu(iso: string): string {
   return d.toLocaleDateString("ru-RU", { weekday: "short", day: "numeric", month: "short", timeZone: "UTC" });
 }
 
+export function formatDateDot(iso: string): string {
+  const d = iso.slice(0, 10);
+  const [y, m, day] = d.split("-");
+  return y && m && day ? `${day}.${m}.${y}` : d;
+}
+
+export function formatDateTimeDot(iso: string): string {
+  const d = formatDateDot(iso);
+  return iso.includes("T") ? `${d} ${formatTime(iso)}` : d;
+}
+
 export function formatTime(iso: string): string {
   return iso.includes("T") ? iso.slice(11, 16) : iso.slice(0, 5);
 }

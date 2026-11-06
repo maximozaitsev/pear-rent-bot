@@ -71,8 +71,21 @@ class RenterOut(BaseModel):
     username: str | None
     first_name: str | None
     last_name: str | None
+    phone: str | None = None
     is_active: bool
     created_at: datetime
+
+
+class RenterPaymentStats(BaseModel):
+    debt: int = 0
+    to_pay: int = 0
+    paid_total: int = 0
+
+
+class RenterDetailOut(BaseModel):
+    renter: RenterOut
+    bookings: list[dict]
+    stats: RenterPaymentStats
 
 
 class RenterStatusRequest(BaseModel):

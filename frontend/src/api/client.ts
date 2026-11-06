@@ -7,6 +7,7 @@ import type {
   DaySchedule,
   Invitation,
   Renter,
+  RenterPaymentStats,
   User,
   WeekSchedule,
   WeeklyScheduleItem,
@@ -100,7 +101,7 @@ export const api = {
     request<Booking>(`/admin/bookings/${id}/payment`, { method: "PATCH", body: JSON.stringify({ payment_status }) }),
 
   adminRenters: () => request<Renter[]>("/admin/renters"),
-  adminRenter: (id: string) => request<{ renter: Renter; bookings: Booking[] }>(`/admin/renters/${id}`),
+  adminRenter: (id: string) => request<{ renter: Renter; bookings: Booking[]; stats: RenterPaymentStats }>(`/admin/renters/${id}`),
   adminSetRenterStatus: (id: string, is_active: boolean) =>
     request<Renter>(`/admin/renters/${id}/status`, { method: "PATCH", body: JSON.stringify({ is_active }) }),
 

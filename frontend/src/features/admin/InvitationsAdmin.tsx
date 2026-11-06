@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { api } from "../../api/client";
 import type { Invitation } from "../../api/types";
+import { formatDateTimeDot } from "../schedule/time";
 import { Banner, Empty, errorText, haptic } from "../../shared/ui";
 
 const STATUS: Record<string, { label: string; tone: string }> = {
@@ -57,7 +58,7 @@ export function InvitationsAdmin() {
             <li key={i.id} className="item">
               <div className="grow">
                 <span className={`chip ${st.tone}`}>{st.label}</span>
-                <div className="meta" style={{ marginTop: 4 }}>{i.created_at.slice(0, 16).replace("T", " ")}</div>
+                <div className="meta" style={{ marginTop: 4 }}>{formatDateTimeDot(i.created_at)}</div>
               </div>
               {i.status === "pending" && <button className="btn btn-sm btn-danger" onClick={() => revoke(i.id)}>Отозвать</button>}
             </li>

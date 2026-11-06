@@ -1,14 +1,16 @@
 import uuid
+from datetime import datetime
 
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
 from app.core.auth import require_admin
 from app.core.db import get_db
-from app.models import User
-from app.schemas.admin import RenterOut, RenterStatusRequest
+from app.models import Booking, PaymentStatus, User
+from app.schemas.admin import RenterOut, RenterPaymentStats, RenterStatusRequest
 from app.schemas.bookings import BookingOut
 from app.services.renters import get_renter, list_renters, set_renter_status
+from app.services.schedule import shop_tz
 
 router = APIRouter()
 
@@ -20,6 +22,7 @@ def _renter_out(user: User) -> RenterOut:
         username=user.username,
         first_name=user.first_name,
         last_name=user.last_name,
+        phone=user.phone,
         is_active=user.is_active,
         created_at=user.created_at,
     )
@@ -45,6 +48,19 @@ def _booking_out(booking, viewer: User) -> BookingOut:
     )
 
 
+def _payment_stats(bookings: list[Booking]) -> RenterPaymentStats:
+    now = datetime.now(shop_tz())
+    debt = to_pay = paid_total = 0
+    for b in bookings:
+        if b.payment_status == PaymentStatus.paid:
+            paid_total += b.price_amount
+        elif b.starts_at < now:
+            debt += b.price_amount
+        else:
+            to_pay += b.price_amount
+    return RenterPaymentStats(debt=debt, to_pay=to_pay, paid_total=paid_total)
+
+
 @router.get("/admin/renters", response_model=list[RenterOut])
 def admin_list_renters(db: Session = Depends(get_db), _admin: User = Depends(require_admin)):
     return [_renter_out(r) for r in list_renters(db)]
@@ -60,6 +76,7 @@ def admin_get_renter(
     return {
         "renter": _renter_out(data["renter"]),
         "bookings": [_booking_out(b, viewer=admin) for b in data["bookings"]],
+        "stats": _payment_stats(data["bookings"]).model_dump(),
     }
 
 
