@@ -6,6 +6,7 @@ export interface User {
   username: string | null;
   first_name: string | null;
   last_name: string | null;
+  phone: string | null;
   role: Role;
   is_active: boolean;
   created_at: string;

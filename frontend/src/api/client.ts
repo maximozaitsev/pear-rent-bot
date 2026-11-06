@@ -81,6 +81,11 @@ export const api = {
       method: "POST",
       body: JSON.stringify(payload),
     }),
+  completeRegistration: (payload: { first_name: string; last_name?: string | null; phone: string }) =>
+    request<AuthResponse>("/auth/complete-registration", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
   me: () => request<User>("/auth/me"),
   scheduleDay: (date: string) => request<DaySchedule>(`/schedule/day?date=${encodeURIComponent(date)}`),
   scheduleWeekly: (week: string) => request<WeekSchedule>(`/schedule/weekly?week=${encodeURIComponent(week)}`),

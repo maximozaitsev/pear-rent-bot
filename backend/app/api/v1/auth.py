@@ -9,7 +9,7 @@ from app.core.config import settings
 from app.core.db import get_db
 from app.core.telegram_auth import validate_init_data
 from app.models import User, UserRole
-from app.schemas.auth import AuthResponse, RegisterRequest, TelegramAuthRequest, UserOut
+from app.schemas.auth import AuthResponse, CompleteRegistrationRequest, RegisterRequest, TelegramAuthRequest, UserOut
 from app.services.invitations import register_renter_with_invite
 
 router = APIRouter()
@@ -22,6 +22,7 @@ def _user_out(user: User) -> UserOut:
         username=user.username,
         first_name=user.first_name,
         last_name=user.last_name,
+        phone=user.phone,
         role=user.role.value,
         is_active=user.is_active,
         created_at=user.created_at,
@@ -113,6 +114,20 @@ def register(payload: RegisterRequest, db: Session = Depends(get_db)) -> AuthRes
 @router.get("/me", response_model=UserOut)
 def me(user: User = Depends(get_current_user)) -> UserOut:
     return _user_out(user)
+
+
+@router.post("/complete-registration", response_model=AuthResponse)
+def complete_registration(
+    payload: CompleteRegistrationRequest,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> AuthResponse:
+    user.first_name = payload.first_name.strip()
+    user.last_name = payload.last_name.strip() if payload.last_name else None
+    user.phone = payload.phone.strip()
+    db.commit()
+    db.refresh(user)
+    return AuthResponse(access_token=create_access_token(user), user=_user_out(user))
 
 
 @router.post("/dev-bypass", response_model=AuthResponse)

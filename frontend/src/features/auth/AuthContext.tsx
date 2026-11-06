@@ -5,6 +5,7 @@ import type { User } from "../../api/types";
 type AuthState =
   | { status: "loading" }
   | { status: "anonymous"; reason: string }
+  | { status: "needs_profile"; user: User; tgFirstName: string | null }
   | { status: "ready"; user: User };
 
 const AuthContext = createContext<{ state: AuthState; initData: string; refresh: () => void } | null>(null);
@@ -34,6 +35,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         // verify it with /me before falling back to Telegram initData.
         if (getToken()) {
           const user = await api.me();
+          if (!user.first_name || !user.phone) {
+            setState({ status: "needs_profile", user, tgFirstName: tg?.initDataUnsafe?.user?.first_name ?? user.first_name });
+            return;
+          }
           setState({ status: "ready", user });
           return;
         }
@@ -44,7 +49,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
         const auth = await api.authTelegram(data);
         setToken(auth.access_token);
-        setState({ status: "ready", user: auth.user });
+        const user = auth.user;
+        if (!user.first_name || !user.phone) {
+          setState({ status: "needs_profile", user, tgFirstName: tg?.initDataUnsafe?.user?.first_name ?? user.first_name });
+          return;
+        }
+        setState({ status: "ready", user });
       } catch (e) {
         setToken(null);
         const tg = getTelegramWebApp();
@@ -63,7 +73,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           if (!data) { setState({ status: "anonymous", reason: "Нет данных Telegram. Откройте Mini App из Telegram." }); return; }
           const auth = await api.authTelegram(data);
           setToken(auth.access_token);
-          setState({ status: "ready", user: auth.user });
+          const user = auth.user;
+          if (!user.first_name || !user.phone) {
+            setState({ status: "needs_profile", user, tgFirstName: tg?.initDataUnsafe?.user?.first_name ?? user.first_name });
+            return;
+          }
+          setState({ status: "ready", user });
         } catch (e2) {
           if (e2 instanceof ApiError && e2.status === 403) {
             const detail = e2.detail as { code?: string; message?: string } | string;
@@ -78,4 +93,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [nonce]);
 
   return createElement(AuthContext.Provider, { value: { state, initData, refresh } }, children);
+}
+
+export function useAuthState() {
+  const ctx = useContext(AuthContext);
+  if (!ctx) throw new Error("AuthProvider missing");
+  return ctx.state;
+}
+
+export function useAuthInitData() {
+  const ctx = useContext(AuthContext);
+  if (!ctx) throw new Error("AuthProvider missing");
+  return ctx.initData;
 }

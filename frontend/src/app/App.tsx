@@ -4,6 +4,7 @@ import { api } from "../api/client";
 import type { Booking } from "../api/types";
 import { useAuth } from "../features/auth/AuthContext";
 import { RegisterGate } from "../features/auth/RegisterGate";
+import { CompleteRegistration } from "../features/auth/CompleteRegistration";
 import { RenterSchedule } from "../features/schedule/RenterSchedule";
 import { formatMoney, formatTime, readDefaultPeriod, writeDefaultPeriod, type PeriodMode } from "../features/schedule/time";
 import { MyBookings } from "../features/bookings/MyBookings";
@@ -141,6 +142,8 @@ function Router() {
     );
   if (state.status === "anonymous")
     return <RegisterGate reason={state.reason} />;
+  if (state.status === "needs_profile")
+    return <CompleteRegistration tgFirstName={state.tgFirstName} onDone={() => window.location.reload()} />;
   return state.user.role === "admin" ? <AdminApp /> : <RenterApp />;
 }
 
