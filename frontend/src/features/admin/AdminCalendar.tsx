@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useState } from "react";
 import { api } from "../../api/client";
 import type { Booking, ChairDay, DaySchedule } from "../../api/types";
-import { formatMoney, formatTime, isoDate, mondayOf } from "../schedule/time";
+import { addDays, firstOfMonth, formatMoney, formatTime, isoDate, mondayOf, monthGridWeeks } from "../schedule/time";
 import { BookingCard } from "./BookingCard";
-import { Banner, DayStrip, Empty, Loader, Sheet, WeekNav, dayParts, errorText, haptic, personName, todayIso } from "../../shared/ui";
+import { Banner, DayStrip, Empty, Loader, MonthGrid, Sheet, WeekNav, dayParts, errorText, haptic, personName, todayIso, type PeriodMode } from "../../shared/ui";
 
 type DB = ChairDay["bookings"][number];
 
@@ -28,8 +28,11 @@ function Occupancy({ day, bookings }: { day: DaySchedule; bookings: DB[] }) {
 }
 
 export function AdminCalendar() {
+  const [mode, setMode] = useState<PeriodMode>("week");
   const [weekStart, setWeekStart] = useState(() => mondayOf(new Date()));
+  const [monthAnchor, setMonthAnchor] = useState(() => firstOfMonth(new Date()));
   const [days, setDays] = useState<DaySchedule[]>([]);
+  const [monthDays, setMonthDays] = useState<Record<string, DaySchedule>>({});
   const [selectedDate, setSelectedDate] = useState("");
   const [selectedBooking, setSelectedBooking] = useState<Booking | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -38,14 +41,26 @@ export function AdminCalendar() {
   const load = useCallback(async () => {
     setLoading(true); setError(null);
     try {
-      const week = await api.scheduleWeekly(isoDate(weekStart));
-      setDays(week.days);
-      setSelectedDate((prev) =>
-        week.days.some((d) => d.date === prev) ? prev : week.days.find((d) => d.date === todayIso())?.date ?? week.days[0]?.date ?? "",
-      );
+      if (mode === "week") {
+        const week = await api.scheduleWeekly(isoDate(weekStart));
+        setDays(week.days);
+        setSelectedDate((prev) =>
+          week.days.some((d) => d.date === prev) ? prev : week.days.find((d) => d.date === todayIso())?.date ?? week.days[0]?.date ?? "",
+        );
+      } else {
+        const weeks = monthGridWeeks(monthAnchor);
+        const from = weeks[0][0].date;
+        const to = weeks[weeks.length - 1][6].date;
+        const a = await api.scheduleAvailability(from, addDays(new Date(from + "T00:00:00Z"), 30).toISOString().slice(0, 10));
+        const b = await api.scheduleAvailability(addDays(new Date(from + "T00:00:00Z"), 31).toISOString().slice(0, 10), to);
+        const map: Record<string, DaySchedule> = {};
+        for (const d of [...a.days, ...b.days]) map[d.date] = d;
+        setMonthDays(map);
+        setSelectedDate((prev) => (map[prev] ? prev : (map[todayIso()] ? todayIso() : Object.keys(map).sort()[0] ?? "")));
+      }
     } catch (e) { setError(errorText(e, "Ошибка загрузки")); }
     finally { setLoading(false); }
-  }, [weekStart]);
+  }, [mode, weekStart, monthAnchor]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -62,20 +77,34 @@ export function AdminCalendar() {
     if (selectedBooking) await openBooking(selectedBooking.id).catch(() => setSelectedBooking(null));
   }
 
-  const chairs = days[0]?.chairs ?? [];
-  const selectedDay = days.find((d) => d.date === selectedDate) ?? null;
+  const activeDays = mode === "week" ? days : Object.values(monthDays).sort((a, b) => a.date.localeCompare(b.date));
+  const chairs = days[0]?.chairs ?? Object.values(monthDays)[0]?.chairs ?? [];
+  const selectedDay = mode === "week" ? (days.find((d) => d.date === selectedDate) ?? null) : (monthDays[selectedDate] ?? null);
   const counts: Record<string, number> = {};
-  for (const d of days) counts[d.date] = d.chairs.reduce((n, c) => n + c.bookings.length, 0);
+  for (const d of activeDays) counts[d.date] = d.chairs.reduce((n, c) => n + c.bookings.length, 0);
 
   return (
     <>
-      <WeekNav weekStart={weekStart} onChange={setWeekStart} />
+      <WeekNav
+        weekStart={mode === "month" ? monthAnchor : weekStart}
+        mode={mode}
+        onModeChange={(m) => {
+          setMode(m);
+          if (m === "week") setWeekStart(mondayOf(new Date()));
+          else setMonthAnchor(firstOfMonth(new Date(selectedDate ? selectedDate + "T00:00:00Z" : Date.now())));
+        }}
+        onChange={(d) => { if (mode === "month") setMonthAnchor(firstOfMonth(d)); else setWeekStart(d); }}
+      />
       {error && <Banner kind="bad" onRetry={load}>{error}</Banner>}
-      {loading && !days.length && <Loader />}
+      {loading && ((mode === "week" && !days.length) || (mode === "month" && Object.keys(monthDays).length === 0)) && <Loader />}
 
-      {!!days.length && (
+      {(mode === "week" ? !!days.length : Object.keys(monthDays).length > 0 || !loading) && (
         <>
-          <DayStrip days={days} selected={selectedDate} onSelect={(d) => setSelectedDate(d.date)} counts={counts} />
+          {mode === "week" ? (
+            <DayStrip days={days} selected={selectedDate} onSelect={(d) => setSelectedDate(d.date)} counts={counts} />
+          ) : (
+            <MonthGrid month={monthAnchor} daysByDate={monthDays} selected={selectedDate} onSelect={(d) => setSelectedDate(d.date)} loading={loading} />
+          )}
 
           {selectedDay && (
             <>
@@ -106,7 +135,7 @@ export function AdminCalendar() {
             </>
           )}
 
-          {chairs.length > 0 && (
+          {mode === "week" && chairs.length > 0 && (
             <>
               <div className="section-label">Обзор недели</div>
               <section className="card">

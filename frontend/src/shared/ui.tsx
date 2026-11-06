@@ -1,7 +1,7 @@
-import { useEffect, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { ApiError, conflictText } from "../api/client";
 import type { DaySchedule } from "../api/types";
-import { addDays, mondayOf } from "../features/schedule/time";
+import { addDays, addMonths, firstOfMonth, formatWeekRange, mondayOf, monthGridWeeks, monthLabelRu } from "../features/schedule/time";
 
 /* ---------- helpers ---------- */
 export function haptic(kind: "light" | "success" | "error" = "light") {
@@ -138,14 +138,91 @@ export function Loader() {
   return <div className="spinner" role="status" aria-label="Загрузка" />;
 }
 
-export function WeekNav({ weekStart, onChange }: { weekStart: Date; onChange: (d: Date) => void }) {
-  const f = (d: Date) => d.toLocaleDateString("ru-RU", { day: "numeric", month: "short", timeZone: "UTC" });
+export type PeriodMode = "week" | "month";
+
+export function WeekNav({
+  weekStart,
+  onChange,
+  mode,
+  onModeChange,
+}: {
+  weekStart: Date;
+  onChange: (d: Date) => void;
+  mode?: PeriodMode;
+  onModeChange?: (m: PeriodMode) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const currentMode = mode ?? "week";
+  const showMode = !!onModeChange;
+
+  const prev = () => onChange(currentMode === "month" ? addMonths(weekStart, -1) : addDays(weekStart, -7));
+  const next = () => onChange(currentMode === "month" ? addMonths(weekStart, 1) : addDays(weekStart, 7));
+  const today = () => onChange(currentMode === "month" ? firstOfMonth(new Date()) : mondayOf(new Date()));
+  const label = currentMode === "month" ? `мес: ${monthLabelRu(weekStart)}` : showMode ? `нед: ${formatWeekRange(weekStart)}` : formatWeekRange(weekStart);
+
+  useEffect(() => { if (!open) return; const onDoc = () => setOpen(false); document.addEventListener("click", onDoc); return () => document.removeEventListener("click", onDoc); }, [open]);
+
   return (
-    <div className="weeknav">
-      <button className="icon-btn" onClick={() => onChange(addDays(weekStart, -7))} aria-label="Предыдущая неделя"><Icon name="left" /></button>
-      <div className="weeknav-label">{f(weekStart)} – {f(addDays(weekStart, 6))}</div>
-      <button className="icon-btn" onClick={() => onChange(addDays(weekStart, 7))} aria-label="Следующая неделя"><Icon name="right" /></button>
-      <button className="btn btn-sm btn-ghost" onClick={() => onChange(mondayOf(new Date()))}>Сегодня</button>
+    <div className="weeknav" onClick={(e) => e.stopPropagation()}>
+      <button className="icon-btn" onClick={prev} aria-label={currentMode === "month" ? "Предыдущий месяц" : "Предыдущая неделя"}><Icon name="left" /></button>
+      {showMode ? (
+        <button type="button" className="period-label" onClick={() => setOpen((v) => !v)} aria-haspopup="menu" aria-expanded={open}>
+          <span>{label}</span><span className="caret">▾</span>
+        </button>
+      ) : (
+        <div className="weeknav-label">{label}</div>
+      )}
+      <button className="icon-btn" onClick={next} aria-label={currentMode === "month" ? "Следующий месяц" : "Следующая неделя"}><Icon name="right" /></button>
+      <button className="btn btn-sm btn-ghost" onClick={today}>Сегодня</button>
+      {showMode && open && onModeChange && (
+        <div className="period-menu" role="menu">
+          <button type="button" className={currentMode === "week" ? "active" : ""} onClick={() => { onModeChange("week"); setOpen(false); }}>По неделе</button>
+          <button type="button" className={currentMode === "month" ? "active" : ""} onClick={() => { onModeChange("month"); setOpen(false); }}>По месяцу</button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+export function MonthGrid({
+  month,
+  daysByDate,
+  selected,
+  onSelect,
+  loading,
+}: {
+  month: Date;
+  daysByDate: Record<string, DaySchedule | undefined>;
+  selected: string;
+  onSelect: (d: DaySchedule) => void;
+  loading?: boolean;
+}) {
+  const today = todayIso();
+  const weeks = monthGridWeeks(month);
+  return (
+    <div className="monthgrid">
+      {weeks.map((week, wi) => (
+        <div key={wi} className="monthrow">
+          {week.map((cell) => {
+            const d = daysByDate[cell.date];
+            const p = dayParts(cell.date);
+            const disabled = !cell.inMonth || !d || !!loading;
+            return (
+              <button
+                key={cell.date}
+                type="button"
+                className={`daycell ${selected === cell.date ? "selected" : ""} ${cell.date === today ? "today" : ""} ${!cell.inMonth ? "outside" : ""}`}
+                disabled={disabled}
+                onClick={() => { if (d && cell.inMonth) { haptic(); onSelect(d); } }}
+              >
+                <span className="wd">{p.wd}</span>
+                <span className="num">{p.num}</span>
+                <span className={`dot ${d ? dayState(d) : "closed"}`} />
+              </button>
+            );
+          })}
+        </div>
+      ))}
     </div>
   );
 }

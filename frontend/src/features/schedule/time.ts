@@ -15,6 +15,47 @@ export function addDays(date: Date, days: number): Date {
   return d;
 }
 
+export function firstOfMonth(date: Date): Date {
+  return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), 1));
+}
+
+export function addMonths(date: Date, months: number): Date {
+  return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + months, 1));
+}
+
+export function monthLabelRu(date: Date): string {
+  return date.toLocaleDateString("ru-RU", { month: "long", timeZone: "UTC" });
+}
+
+export function formatWeekRange(weekStart: Date): string {
+  const f = (d: Date) => d.toLocaleDateString("ru-RU", { day: "numeric", month: "short", timeZone: "UTC" });
+  return `${f(weekStart)} – ${f(addDays(weekStart, 6))}`;
+}
+
+export type MonthCell = { date: string; inMonth: boolean };
+
+export function monthGridWeeks(month: Date): MonthCell[][] {
+  const first = firstOfMonth(month);
+  const year = first.getUTCFullYear();
+  const m = first.getUTCMonth();
+  const start = mondayOf(first);
+  const weeks: MonthCell[][] = [];
+  let cur = start;
+  for (let w = 0; w < 6; w++) {
+    const week: MonthCell[] = [];
+    for (let i = 0; i < 7; i++) {
+      const iso = isoDate(cur);
+      week.push({ date: iso, inMonth: cur.getUTCMonth() === m && cur.getUTCFullYear() === year });
+      cur = addDays(cur, 1);
+    }
+    weeks.push(week);
+    if (cur.getUTCMonth() !== m && cur.getUTCFullYear() >= year && !(m === 11 && cur.getUTCFullYear() === year)) break;
+    if (cur.getUTCMonth() !== m && (cur.getUTCFullYear() > year || (cur.getUTCFullYear() === year && cur.getUTCMonth() > m))) break;
+  }
+  // Always 4-6 rows: if first day of month was Monday and month fits in 4 weeks rare; trim trailing week only if entirely next month (shouldn't happen with logic) — keep computed weeks.
+  return weeks;
+}
+
 export function formatDateRu(iso: string): string {
   const d = new Date(iso + "T00:00:00Z");
   return d.toLocaleDateString("ru-RU", { weekday: "short", day: "numeric", month: "short", timeZone: "UTC" });

@@ -1,5 +1,6 @@
 import type {
   AuthResponse,
+  AvailabilitySchedule,
   Booking,
   Chair,
   DateOverride,
@@ -77,6 +78,8 @@ export const api = {
   me: () => request<User>("/auth/me"),
   scheduleDay: (date: string) => request<DaySchedule>(`/schedule/day?date=${encodeURIComponent(date)}`),
   scheduleWeekly: (week: string) => request<WeekSchedule>(`/schedule/weekly?week=${encodeURIComponent(week)}`),
+  scheduleAvailability: (from: string, to: string) =>
+    request<AvailabilitySchedule>(`/schedule/availability?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`),
   createBooking: (payload: {
     chair_id: string;
     starts_at: string;

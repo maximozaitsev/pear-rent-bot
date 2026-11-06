@@ -71,6 +71,12 @@ export interface WeekSchedule {
   days: DaySchedule[];
 }
 
+export interface AvailabilitySchedule {
+  from: string;
+  to: string;
+  days: DaySchedule[];
+}
+
 export interface Booking {
   id: string;
   chair_id: string;

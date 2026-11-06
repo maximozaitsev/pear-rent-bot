@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useState } from "react";
 import { api } from "../../api/client";
 import type { ChairDay, DaySchedule, WeekSchedule } from "../../api/types";
-import { addDays, formatTime, isoDate, mondayOf } from "./time";
+import { addDays, firstOfMonth, formatTime, isoDate, mondayOf, monthGridWeeks } from "./time";
 import { ChairPicker } from "./ChairPicker";
-import { Banner, DayStrip, Empty, Icon, Loader, WeekNav, dayParts, errorText, haptic, todayIso } from "../../shared/ui";
+import { Banner, DayStrip, Empty, Icon, Loader, MonthGrid, WeekNav, dayParts, errorText, haptic, todayIso, type PeriodMode } from "../../shared/ui";
 
 function chairStatus(chair: ChairDay): { label: string; tone: "ok" | "warn" | "bad" } {
   if (chair.is_fully_booked) return { label: "Занято", tone: "bad" };
@@ -12,8 +12,11 @@ function chairStatus(chair: ChairDay): { label: string; tone: "ok" | "warn" | "b
 }
 
 export function RenterSchedule({ refreshKey }: { refreshKey?: number }) {
+  const [mode, setMode] = useState<PeriodMode>("week");
   const [weekStart, setWeekStart] = useState(() => mondayOf(new Date()));
+  const [monthAnchor, setMonthAnchor] = useState(() => firstOfMonth(new Date()));
   const [week, setWeek] = useState<WeekSchedule | null>(null);
+  const [monthDays, setMonthDays] = useState<Record<string, DaySchedule>>({});
   const [selectedDate, setSelectedDate] = useState("");
   const [picker, setPicker] = useState<{ day: DaySchedule; chair: ChairDay } | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -22,15 +25,28 @@ export function RenterSchedule({ refreshKey }: { refreshKey?: number }) {
   const load = useCallback(async () => {
     setLoading(true); setError(null);
     try {
-      const data = await api.scheduleWeekly(isoDate(weekStart));
-      setWeek(data);
-      setSelectedDate((prev) =>
-        data.days.some((d) => d.date === prev) ? prev : data.days.find((d) => d.date === todayIso())?.date ?? data.days[0]?.date ?? "",
-      );
+      if (mode === "week") {
+        const data = await api.scheduleWeekly(isoDate(weekStart));
+        setWeek(data);
+        setSelectedDate((prev) =>
+          data.days.some((d) => d.date === prev) ? prev : data.days.find((d) => d.date === todayIso())?.date ?? data.days[0]?.date ?? "",
+        );
+      } else {
+        const weeks = monthGridWeeks(monthAnchor);
+        const from = weeks[0][0].date;
+        const to = weeks[weeks.length - 1][6].date;
+        // Schedule/availability API supports up to 31 days per request.
+        const a = await api.scheduleAvailability(from, addDays(new Date(from + "T00:00:00Z"), 30).toISOString().slice(0, 10));
+        const b = await api.scheduleAvailability(addDays(new Date(from + "T00:00:00Z"), 31).toISOString().slice(0, 10), to);
+        const map: Record<string, DaySchedule> = {};
+        for (const d of [...a.days, ...b.days]) map[d.date] = d;
+        setMonthDays(map);
+        setSelectedDate((prev) => (map[prev] ? prev : (map[todayIso()] ? todayIso() : Object.keys(map).sort()[0] ?? "")));
+      }
     } catch (e) {
       setError(errorText(e, "Не удалось загрузить расписание"));
     } finally { setLoading(false); }
-  }, [weekStart]);
+  }, [mode, weekStart, monthAnchor]);
 
   useEffect(() => { load(); }, [load, refreshKey]);
 
@@ -45,14 +61,24 @@ export function RenterSchedule({ refreshKey }: { refreshKey?: number }) {
     }
   }
 
-  const selectedDay = week?.days.find((d) => d.date === selectedDate) ?? null;
+  const selectedDay = mode === "week" ? (week?.days.find((d) => d.date === selectedDate) ?? null) : (monthDays[selectedDate] ?? null);
 
   return (
     <>
-      <WeekNav weekStart={weekStart} onChange={setWeekStart} />
+      <WeekNav
+        weekStart={mode === "month" ? monthAnchor : weekStart}
+        mode={mode}
+        onModeChange={(m) => {
+          setMode(m);
+          if (m === "week") setWeekStart(mondayOf(new Date()));
+          else setMonthAnchor(firstOfMonth(new Date(selectedDate ? selectedDate + "T00:00:00Z" : Date.now())));
+        }}
+        onChange={(d) => { if (mode === "month") setMonthAnchor(firstOfMonth(d)); else setWeekStart(d); }}
+      />
       {error && <Banner kind="bad" onRetry={load}>{error}</Banner>}
-      {loading && !week && <Loader />}
-      {week && <DayStrip days={week.days} selected={selectedDate} onSelect={(d) => setSelectedDate(d.date)} />}
+      {loading && ((mode === "week" && !week) || (mode === "month" && Object.keys(monthDays).length === 0)) && <Loader />}
+      {mode === "week" && week && <DayStrip days={week.days} selected={selectedDate} onSelect={(d) => setSelectedDate(d.date)} />}
+      {mode === "month" && <MonthGrid month={monthAnchor} daysByDate={monthDays} selected={selectedDate} onSelect={(d) => setSelectedDate(d.date)} loading={loading} />}
 
       {selectedDay && (
         <>
