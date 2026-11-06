@@ -8,6 +8,12 @@ BACKEND = os.path.join(ROOT, "backend")
 sys.path.insert(0, BACKEND)
 os.chdir(BACKEND)
 
+# Ensure SQLite file is writable in container volume if used
+db_url = os.environ.get("DATABASE_URL", "sqlite:///./pear_rent.db")
+if db_url.startswith("sqlite:///./"):
+    # relative to backend working dir
+    pass
+
 subprocess.run([sys.executable, "-m", "alembic", "upgrade", "head"], check=False)
 
 import uvicorn

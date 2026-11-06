@@ -14,18 +14,21 @@ class Settings(BaseSettings):
     secret_key: str = "change-me-in-production"
     access_token_expire_minutes: int = 60
 
-    database_url: str = "postgresql+psycopg://postgres:postgres@localhost:5432/pear_rent"
+    database_url: str = "sqlite:///./pear_rent.db"
 
     @field_validator("database_url", mode="before")
     @classmethod
     def _normalize_database_url(cls, value: object) -> object:
         if isinstance(value, str):
             raw = value.strip()
+            if not raw:
+                return "sqlite:///./pear_rent.db"
             if raw.startswith("postgres://"):
                 return raw.replace("postgres://", "postgresql+psycopg://", 1)
             if raw.startswith("postgresql://") and "+psycopg" not in raw:
                 return raw.replace("postgresql://", "postgresql+psycopg://", 1)
             if raw.startswith("https://"):
+                # Bothost may proxy DB URL; prefer explicit postgresql+psycopg if needed.
                 return raw.replace("https://", "postgresql+psycopg://", 1)
             return raw
         return value
