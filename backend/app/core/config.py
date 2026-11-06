@@ -1,11 +1,18 @@
 import json
+from pathlib import Path
 
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+_BACKEND_DIR = Path(__file__).resolve().parents[2]
+_ROOT_DIR = _BACKEND_DIR.parent
+_ENV_FILES = (_BACKEND_DIR / ".env", _ROOT_DIR / ".env")
+
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
+    model_config = SettingsConfigDict(
+        env_file=_ENV_FILES, env_file_encoding="utf-8", extra="ignore"
+    )
 
     app_name: str = "pear-rent-bot"
     env: str = "development"
