@@ -1,0 +1,18 @@
+/* ===== themes/barber-classic.css — 4) Классика: крем + тёмно-синий, красно-синяя «барбер-полоска» ===== */
+@import url("https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700&family=Inter:wght@400;500;600;700&display=swap");
+@import "../base.css";
+:root {
+  --display: "Fraunces", Georgia, "Times New Roman", serif;
+  --disp-weight: 650;
+  --bg: #f3ecdf; --surface: #fbf7ef; --surface-2: #f3ecdf;
+  --text: #17223f; --hint: #70695c; --line: #ddd2bc; --soft: #ece2cf;
+  --accent: #1b2d5b; --on-accent: #fbf7ef;
+  --ok: #2f7d4f; --warn: #b8741a; --bad: #b3262d;
+  --r: 8px; --h1-size: 1.9rem; --h-track: -0.01em;
+  --deco-w: 72px; --deco-h: 6px;
+  --deco: repeating-linear-gradient(-45deg, #b3262d 0 6px, #fbf7ef 6px 9px, #1b2d5b 9px 15px, #fbf7ef 15px 18px);
+  --sel-bar: 3px;
+  --chip-r: 4px;
+}
+.daypill.today .num { color: var(--bad); }
+.btn-primary { box-shadow: 0 2px 0 color-mix(in srgb, var(--accent) 60%, black); }

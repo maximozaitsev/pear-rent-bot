@@ -1,0 +1,24 @@
+/* ===== themes/tg-native.css — 1) Нативный Telegram: цвета берутся из темы пользователя ===== */
+@import "../base.css";
+:root {
+  --bg: var(--tg-theme-secondary-bg-color, #eff1f5);
+  --surface: var(--tg-theme-bg-color, #ffffff);
+  --surface-2: color-mix(in srgb, var(--text) 4%, var(--surface));
+  --text: var(--tg-theme-text-color, #15171c);
+  --hint: var(--tg-theme-hint-color, #767d8c);
+  --accent: var(--tg-theme-button-color, #2f6df6);
+  --on-accent: var(--tg-theme-button-text-color, #ffffff);
+  --line: color-mix(in srgb, var(--text) 10%, transparent);
+  --soft: color-mix(in srgb, var(--text) 6%, transparent);
+  --r: 16px;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    color-scheme: dark;
+    --bg: var(--tg-theme-secondary-bg-color, #0e1014);
+    --surface: var(--tg-theme-bg-color, #1a1d23);
+    --text: var(--tg-theme-text-color, #f1f3f7);
+    --hint: var(--tg-theme-hint-color, #8d94a3);
+    --ok: #3ccf7e; --warn: #f0b13a; --bad: #ff6b60;
+  }
+}

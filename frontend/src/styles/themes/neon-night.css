@@ -1,0 +1,22 @@
+/* ===== themes/neon-night.css — 6) Neon Night: тёмно-синий + лаймовый неон, свечение, современно ===== */
+@import url("https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&display=swap");
+@import "../base.css";
+:root {
+  color-scheme: dark;
+  --display: "Space Grotesk", "Inter", system-ui, sans-serif;
+  --disp-weight: 700;
+  --bg: #07080d; --surface: #0f111a; --surface-2: #151826;
+  --text: #eef0ff; --hint: #7f86a8; --line: #1f2338; --soft: #171a2b;
+  --accent: #b8ff3d; --on-accent: #0a0d05;
+  --ok: #3ddc97; --warn: #ffb347; --bad: #ff5c7a;
+  --r: 16px; --h1-size: 1.75rem;
+  --caps: uppercase; --track: 0.07em;
+  --btn-fs: 0.8rem; --btn-weight: 700;
+  --btn-bg: #171a2b;
+  --seg-bg: var(--accent); --seg-fg: var(--on-accent);
+}
+body { background: radial-gradient(900px 420px at 85% -8%, color-mix(in srgb, var(--accent) 13%, transparent), transparent 70%), radial-gradient(700px 360px at -10% 105%, rgba(110, 80, 255, 0.14), transparent 70%), var(--bg); background-attachment: fixed; }
+.btn-primary { box-shadow: 0 0 22px color-mix(in srgb, var(--accent) 38%, transparent); }
+.daypill.selected, .slot.selected { box-shadow: 0 0 16px color-mix(in srgb, var(--accent) 35%, transparent); }
+.tab.active .icon { filter: drop-shadow(0 0 6px color-mix(in srgb, var(--accent) 70%, transparent)); }
+.price-line b { color: var(--accent); }

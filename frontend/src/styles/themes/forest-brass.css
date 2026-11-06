@@ -1,0 +1,22 @@
+/* ===== themes/forest-brass.css — 5) Лесной зелёный + латунь: «клубный», дорогой ===== */
+@import url("https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700&family=Inter:wght@400;500;600;700&display=swap");
+@import "../base.css";
+:root {
+  color-scheme: dark;
+  --display: "Fraunces", Georgia, serif;
+  --disp-weight: 600;
+  --bg: #0b1410; --surface: #12201a; --surface-2: #172a21;
+  --text: #ece8da; --hint: #8c9b90; --line: #24392e; --soft: #1a2d24;
+  --accent: #cda862; --on-accent: #0b1410;
+  --ok: #6fcf97; --warn: #e3a95a; --bad: #ef7470;
+  --r: 10px; --h1-size: 1.85rem;
+  --caps: uppercase; --track: 0.08em;
+  --btn-fs: 0.8rem; --btn-weight: 700;
+  --btn-bg: #1a2d24; --btn-line: #2a4234;
+  --bw: 1px; --sel-bar: 2px; --sheet-line: 2px;
+  --deco-w: 40px; --deco-h: 2px; --deco: var(--accent);
+  --chip-r: 3px; --chip-bw: 1px;
+  --seg-bg: var(--accent); --seg-fg: var(--on-accent);
+}
+.topbar .sub { color: var(--accent); }
+.card, .item { background: linear-gradient(180deg, color-mix(in srgb, var(--accent) 4%, var(--surface)), var(--surface)); }
