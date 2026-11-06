@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import type { ChairDay, DaySchedule } from "../../api/types";
 import { api } from "../../api/client";
 import { buildHourSlots, calcHourlyPrice, formatMoney } from "./time";
-import { Banner, Sheet, dayParts, errorText, haptic } from "../../shared/ui";
+import { Banner, Sheet, dayParts, errorText, haptic, todayIso } from "../../shared/ui";
 
 function hourRange(iso: string): string {
   return iso.includes("T") ? iso.slice(11, 16) : iso.slice(0, 5);
@@ -51,10 +51,12 @@ export function ChairPicker({
   const hourlyEnd = endHour ? `${day.date}T${endHour}:00` : null;
   const hourlyValid = !!hourlyStart && !!hourlyEnd && hourlyHours >= 1 && slotCovers(hourlyStart, hourlyEnd, chair.free_intervals);
 
+  const isPast = day.date < todayIso();
   const price = mode === "full_day" ? 6000 : hourlyHours > 0 ? calcHourlyPrice(hourlyHours) : 0;
-  const canSubmit = !busy && (mode === "hourly" ? hourlyValid : chair.is_free_whole_day);
+  const canSubmit = !isPast && !busy && (mode === "hourly" ? hourlyValid : chair.is_free_whole_day);
 
   async function submit() {
+    if (isPast) { setError("Нельзя записаться на прошедший день"); return; }
     setBusy(true); setError(null);
     try {
       if (mode === "full_day") {
@@ -82,6 +84,7 @@ export function ChairPicker({
 
   const footer = wh.is_open ? (
     <>
+      {isPast && <Banner kind="info">Запись на прошедший день недоступна.</Banner>}
       {error && <Banner kind="bad">{error}</Banner>}
       <div className="price-line">
         <span className="muted">

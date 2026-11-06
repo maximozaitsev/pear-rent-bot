@@ -1,9 +1,14 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { api } from "../../api/client";
-import type { ChairDay, DaySchedule, WeekSchedule } from "../../api/types";
-import { addDays, firstOfMonth, formatMoney, formatTime, isoDate, mondayOf, monthGridWeeks } from "./time";
+import type { ChairDay, DaySchedule } from "../../api/types";
+import { addDays, firstOfMonth, formatMoney, formatTime, monthGridWeeks } from "./time";
 import { ChairPicker } from "./ChairPicker";
-import { Banner, DayStrip, Empty, Icon, Loader, MonthGrid, Sheet, WeekNav, dayParts, errorText, haptic, todayIso, type PeriodMode } from "../../shared/ui";
+import { Banner, DayStrip, Empty, Icon, Loader, MonthGrid, WeekNav, dayParts, errorText, haptic, todayIso, type PeriodMode } from "../../shared/ui";
+
+function todayStart(): Date {
+  const n = new Date();
+  return new Date(Date.UTC(n.getFullYear(), n.getMonth(), n.getDate()));
+}
 
 function chairStatus(chair: ChairDay): { label: string; tone: "ok" | "warn" | "bad" } {
   if (chair.is_fully_booked) return { label: "Занято", tone: "bad" };
@@ -11,13 +16,15 @@ function chairStatus(chair: ChairDay): { label: string; tone: "ok" | "warn" | "b
   return { label: "Свободно", tone: "ok" };
 }
 
+type PickedDay = { date: string; chairId: string; chairName: string; isAlt: boolean };
+
 const FULL_DAY_PRICE = 6000;
 
 export function RenterSchedule({ refreshKey }: { refreshKey?: number }) {
   const [mode, setMode] = useState<PeriodMode>("week");
-  const [weekStart, setWeekStart] = useState(() => mondayOf(new Date()));
+  const [weekStart, setWeekStart] = useState(() => todayStart());
   const [monthAnchor, setMonthAnchor] = useState(() => firstOfMonth(new Date()));
-  const [week, setWeek] = useState<WeekSchedule | null>(null);
+  const [weekDays, setWeekDays] = useState<DaySchedule[]>([]);
   const [monthDays, setMonthDays] = useState<Record<string, DaySchedule>>({});
   const [selectedDate, setSelectedDate] = useState("");
   const [picker, setPicker] = useState<{ day: DaySchedule; chair: ChairDay } | null>(null);
@@ -25,7 +32,7 @@ export function RenterSchedule({ refreshKey }: { refreshKey?: number }) {
   const [loading, setLoading] = useState(false);
   const [selectMode, setSelectMode] = useState(false);
   const [targetChairId, setTargetChairId] = useState<string | null>(null);
-  const [pickedDates, setPickedDates] = useState<Set<string>>(new Set());
+  const [picked, setPicked] = useState<Map<string, PickedDay>>(new Map());
   const [bookingBusy, setBookingBusy] = useState(false);
   const [bookingReport, setBookingReport] = useState<string | null>(null);
 
@@ -33,8 +40,10 @@ export function RenterSchedule({ refreshKey }: { refreshKey?: number }) {
     setLoading(true); setError(null);
     try {
       if (mode === "week") {
-        const data = await api.scheduleWeekly(isoDate(weekStart));
-        setWeek(data);
+        const from = weekStart.toISOString().slice(0, 10);
+        const to = addDays(weekStart, 6).toISOString().slice(0, 10);
+        const data = await api.scheduleAvailability(from, to);
+        setWeekDays(data.days);
         setSelectedDate((prev) =>
           data.days.some((d) => d.date === prev) ? prev : data.days.find((d) => d.date === todayIso())?.date ?? data.days[0]?.date ?? "",
         );
@@ -68,29 +77,47 @@ export function RenterSchedule({ refreshKey }: { refreshKey?: number }) {
     }
   }
 
-  const selectedDay = mode === "week" ? (week?.days.find((d) => d.date === selectedDate) ?? null) : (monthDays[selectedDate] ?? null);
+  const selectedDay = mode === "week" ? (weekDays.find((d) => d.date === selectedDate) ?? null) : (monthDays[selectedDate] ?? null);
   const daysByDate = useMemo(() => {
     if (mode === "week") {
       const m: Record<string, DaySchedule> = {};
-      for (const d of week?.days ?? []) m[d.date] = d;
+      for (const d of weekDays) m[d.date] = d;
       return m;
     }
     return monthDays;
-  }, [mode, week, monthDays]);
+  }, [mode, weekDays, monthDays]);
   const allChairs = useMemo(() => {
     const first = Object.values(daysByDate)[0];
     return first?.chairs.map((c) => ({ id: c.chair_id, name: c.name })) ?? [];
   }, [daysByDate]);
   const targetChair = allChairs.find((c) => c.id === targetChairId) ?? null;
 
+  const today = todayIso();
+  const pickedDates = useMemo(() => new Set(picked.keys()), [picked]);
+  const pickedChairByDate = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const [date, item] of picked) m.set(date, item.chairId);
+    return m;
+  }, [picked]);
+
+  function resolvePick(d: DaySchedule): PickedDay | null {
+    if (d.date < today || !d.working_hours.is_open) return null;
+    if (targetChairId) {
+      const target = d.chairs.find((c) => c.chair_id === targetChairId);
+      if (target?.is_free_whole_day && targetChair) return { date: d.date, chairId: targetChairId, chairName: targetChair.name, isAlt: false };
+      const alt = d.chairs.find((c) => c.chair_id !== targetChairId && c.is_free_whole_day);
+      if (alt) return { date: d.date, chairId: alt.chair_id, chairName: alt.name, isAlt: true };
+      return null;
+    }
+    const any = d.chairs.find((c) => c.is_free_whole_day);
+    return any ? { date: d.date, chairId: any.chair_id, chairName: any.name, isAlt: false } : null;
+  }
+
   function isDayBookable(d: DaySchedule): boolean {
-    if (!d.working_hours.is_open || !targetChairId) return false;
-    const chair = d.chairs.find((c) => c.chair_id === targetChairId);
-    return !!chair && chair.is_free_whole_day;
+    return !!resolvePick(d);
   }
 
   function canPickDate(d: DaySchedule): boolean {
-    if (!targetChairId) return !!d.working_hours.is_open;
     return isDayBookable(d);
   }
 
@@ -99,9 +126,9 @@ export function RenterSchedule({ refreshKey }: { refreshKey?: number }) {
       const next = !v;
       if (next) {
         setTargetChairId((id) => id ?? allChairs[0]?.id ?? null);
-        setPickedDates(new Set()); setBookingReport(null); setError(null);
+        setPicked(new Map()); setBookingReport(null); setError(null);
       } else {
-        setPickedDates(new Set()); setBookingReport(null);
+        setPicked(new Map()); setBookingReport(null);
       }
       return next;
     });
@@ -109,17 +136,13 @@ export function RenterSchedule({ refreshKey }: { refreshKey?: number }) {
 
   function onDayPick(d: DaySchedule) {
     if (selectMode) {
-      if (!targetChairId) {
-        haptic();
-        setError("Сначала выберите кресло для бронирования целых дней.");
-        return;
-      }
-      if (!isDayBookable(d)) return;
+      const resolved = resolvePick(d);
+      if (!resolved) return;
       haptic();
       setError(null); setBookingReport(null);
-      setPickedDates((prev) => {
-        const next = new Set(prev);
-        if (next.has(d.date)) next.delete(d.date); else next.add(d.date);
+      setPicked((prev) => {
+        const next = new Map(prev);
+        if (next.has(d.date)) next.delete(d.date); else next.set(d.date, resolved);
         return next;
       });
       return;
@@ -128,40 +151,42 @@ export function RenterSchedule({ refreshKey }: { refreshKey?: number }) {
   }
 
   async function submitPicked() {
-    if (!targetChairId || !targetChair || pickedDates.size === 0) return;
+    if (picked.size === 0) return;
     setBookingBusy(true); setError(null); setBookingReport(null);
-    const dates = Array.from(pickedDates).sort();
-    const ok: string[] = [];
-    const fail: string[] = [];
+    const items = Array.from(picked.values()).sort((a, b) => a.date.localeCompare(b.date));
+    const ok: PickedDay[] = [];
+    const fail = new Map<string, PickedDay>();
     try {
-      for (const date of dates) {
-        const day = daysByDate[date];
+      for (const item of items) {
+        const day = daysByDate[item.date];
         const wh = day?.working_hours;
-        if (!day || !wh?.is_open || !wh.open_time || !wh.close_time) { fail.push(date); continue; }
+        if (!day || !wh?.is_open || !wh.open_time || !wh.close_time) { fail.set(item.date, item); continue; }
         try {
           await api.createBooking({
-            chair_id: targetChairId,
-            starts_at: `${date}T${wh.open_time.slice(0, 5)}:00`,
-            ends_at: `${date}T${wh.close_time.slice(0, 5)}:00`,
+            chair_id: item.chairId,
+            starts_at: `${item.date}T${wh.open_time.slice(0, 5)}:00`,
+            ends_at: `${item.date}T${wh.close_time.slice(0, 5)}:00`,
             booking_type: "full_day",
           });
-          ok.push(date);
-        } catch { fail.push(date); }
+          ok.push(item);
+        } catch { fail.set(item.date, item); }
       }
       await load();
-      setPickedDates(new Set(fail));
-      if (ok.length && !fail.length) {
-        haptic("success");
-        setBookingReport(`Забронировано: ${ok.length} дн. · ${targetChair.name} · ${formatMoney(ok.length * FULL_DAY_PRICE)}.`);
-      } else if (ok.length) {
-        setBookingReport(`Забронировано: ${ok.length} дн. · ${targetChair.name} · ${formatMoney(ok.length * FULL_DAY_PRICE)}. Не удалось: ${fail.length}.`);
+      setPicked(fail);
+      if (ok.length) {
+        haptic(ok.length === items.length ? "success" : "light");
+        const byChair = ok.reduce<Record<string, number>>((m, i) => ({ ...m, [i.chairName]: (m[i.chairName] ?? 0) + 1 }), {});
+        const summary = Object.entries(byChair).map(([n, c]) => `${n}: ${c}`).join(", ");
+        setBookingReport(`Забронировано: ${ok.length} дн. · ${formatMoney(ok.length * FULL_DAY_PRICE)} (${summary}).${fail.size ? ` Не удалось: ${fail.size}.` : ""}`);
       } else {
         setError("Не удалось создать бронирования. Расписание обновлено.");
       }
     } finally { setBookingBusy(false); }
   }
 
-  const pickedCount = pickedDates.size;
+  const pickedItems = Array.from(picked.values()).sort((a, b) => a.date.localeCompare(b.date));
+  const altItems = pickedItems.filter((i) => i.isAlt);
+  const pickedCount = pickedItems.length;
 
   return (
     <>
@@ -170,8 +195,8 @@ export function RenterSchedule({ refreshKey }: { refreshKey?: number }) {
         mode={mode}
         onModeChange={(m) => {
           setMode(m);
-          setPickedDates(new Set()); setBookingReport(null);
-          if (m === "week") setWeekStart(mondayOf(new Date()));
+          setPicked(new Map()); setBookingReport(null);
+          if (m === "week") setWeekStart(todayStart());
           else setMonthAnchor(firstOfMonth(new Date(selectedDate ? selectedDate + "T00:00:00Z" : Date.now())));
         }}
         onChange={(d) => { if (mode === "month") setMonthAnchor(firstOfMonth(d)); else setWeekStart(d); }}
@@ -181,17 +206,17 @@ export function RenterSchedule({ refreshKey }: { refreshKey?: number }) {
       />
       {error && <Banner kind="bad" onRetry={load}>{error}</Banner>}
       {bookingReport && <Banner kind="ok">{bookingReport}</Banner>}
-      {loading && ((mode === "week" && !week) || (mode === "month" && Object.keys(monthDays).length === 0)) && <Loader />}
+      {loading && ((mode === "week" && !weekDays.length) || (mode === "month" && Object.keys(monthDays).length === 0)) && <Loader />}
 
-      {mode === "week" && week && (
+      {mode === "week" && !!weekDays.length && (
         <DayStrip
-          days={week.days}
+          days={weekDays}
           selected={selectedDate}
           onSelect={onDayPick}
           pickedDates={selectMode ? pickedDates : undefined}
           canPickDate={selectMode ? canPickDate : undefined}
           dotVariant="renter"
-          pickedChairId={selectMode ? (targetChairId ?? undefined) : undefined}
+          pickedChairByDate={selectMode ? pickedChairByDate : undefined}
         />
       )}
       {mode === "month" && (
@@ -204,7 +229,7 @@ export function RenterSchedule({ refreshKey }: { refreshKey?: number }) {
           pickedDates={selectMode ? pickedDates : undefined}
           canPickDate={selectMode ? canPickDate : undefined}
           dotVariant="renter"
-          pickedChairId={selectMode ? (targetChairId ?? undefined) : undefined}
+          pickedChairByDate={selectMode ? pickedChairByDate : undefined}
         />
       )}
 
@@ -217,20 +242,39 @@ export function RenterSchedule({ refreshKey }: { refreshKey?: number }) {
                 key={c.id}
                 type="button"
                 className={`btn btn-sm ${targetChairId === c.id ? "btn-primary" : "btn-ghost"}`}
-                onClick={() => { haptic(); setTargetChairId(c.id); setPickedDates(new Set()); setBookingReport(null); setError(null); }}
+                onClick={() => { haptic(); setTargetChairId(c.id); setPicked(new Map()); setBookingReport(null); setError(null); }}
               >{c.name}</button>
             ))}
           </div>
-          {!targetChairId && <p className="muted small">Сначала выберите кресло, затем отметьте дни в календаре.</p>}
-          {targetChairId && <p className="muted small">Отмечайте дни, свободные целиком для «{targetChair?.name}». Недоступные дни нельзя выбрать.</p>}
+          {!targetChairId && <p className="muted small">Сначала выберите кресло.</p>}
+          {targetChairId && <p className="muted small">Отмечайте дни для «{targetChair?.name}». Если в день свободно только другое кресло, день можно выбрать — в отчёте будет пометка.</p>}
+          {!!altItems.length && (() => {
+            const months = ["января", "февраля", "марта", "апреля", "мая", "июня", "июля", "августа", "сентября", "октября", "ноября", "декабря"];
+            const byKey = altItems.reduce<Record<string, { dates: number[]; chair: string; month: string }>>((m, i) => {
+              const d = new Date(i.date + "T00:00:00Z");
+              const key = `${d.getUTCFullYear()}-${d.getUTCMonth()}-${i.chairName}`;
+              (m[key] ??= { dates: [], chair: i.chairName, month: months[d.getUTCMonth()] }).dates.push(d.getUTCDate());
+              return m;
+            }, {});
+            return (
+              <div className="banner warn stack" style={{ display: "grid", alignItems: "flex-start", gap: 4 }}>
+                {Object.values(byKey).map((g) => (
+                  <div key={g.month + g.chair} style={{ display: "grid", gap: 1 }}>
+                    <div>{g.dates.sort((a, b) => a - b).join(", ")} {g.month} доступно только {g.chair}.</div>
+                    <div className="muted small">Нужно именно {targetChair?.name}? Выберите другой день.</div>
+                  </div>
+                ))}
+              </div>
+            );
+          })()}
           <div className="price-line">
             <span className="muted">
               Забронировано: <b>{pickedCount}</b> дн.
-              {targetChair && <><br />{targetChair.name}</>}
+              {targetChair && <><br />{targetChair.name}{altItems.length ? " (часть дат — другое кресло)" : ""}</>}
             </span>
             <b>{pickedCount ? formatMoney(pickedCount * FULL_DAY_PRICE) : "—"}</b>
           </div>
-          <button className="btn btn-primary btn-block" disabled={!targetChairId || pickedCount === 0 || bookingBusy} onClick={submitPicked}>
+          <button className="btn btn-primary btn-block" disabled={pickedCount === 0 || bookingBusy} onClick={submitPicked}>
             {bookingBusy ? "Бронирование..." : "Забронировать выбранные дни"}
           </button>
           <p className="muted small">Тариф полного дня: {formatMoney(FULL_DAY_PRICE)}. Итог подтверждает сервер.</p>
@@ -242,6 +286,8 @@ export function RenterSchedule({ refreshKey }: { refreshKey?: number }) {
           <div className="section-label">{dayParts(selectedDay.date).long}</div>
           {!selectedDay.working_hours.is_open ? (
             <Empty icon="🔒">Барбершоп в этот день закрыт</Empty>
+          ) : selectedDay.date < today ? (
+            <Empty icon="📅">Запись на прошедшие дни недоступна</Empty>
           ) : !selectedDay.chairs.length ? (
             <Empty icon="💺">Нет доступных кресел</Empty>
           ) : (

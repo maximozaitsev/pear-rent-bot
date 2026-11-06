@@ -60,15 +60,16 @@ export function dayState(day: DaySchedule): "closed" | "free" | "partial" | "bus
 
 export type DotVariant = "admin" | "renter";
 
-function ChairDots({ day, variant, picked, pickedChairId }: { day: DaySchedule; variant?: DotVariant; picked?: boolean; pickedChairId?: string }) {
+function ChairDots({ day, variant, picked, pickedChairId, pickedChairByDate }: { day: DaySchedule; variant?: DotVariant; picked?: boolean; pickedChairId?: string; pickedChairByDate?: Map<string, string> }) {
   if (!day.working_hours.is_open) return <span className="dots"><i className="cdot closed" /></span>;
   const chairs = day.chairs;
   if (!chairs.length) return <span className="dots"><i className="cdot empty" /></span>;
-  if (picked && !pickedChairId) return <span className="dots">{chairs.map((c) => <i key={c.chair_id} className="cdot picked" />)}</span>;
+  const resolvedPicked = pickedChairByDate?.get(day.date) ?? (picked && !pickedChairId ? undefined : pickedChairId);
+  if (picked && !resolvedPicked) return <span className="dots">{chairs.map((c) => <i key={c.chair_id} className="cdot picked" />)}</span>;
   return (
     <span className="dots">
       {chairs.map((c) => {
-        if (picked && pickedChairId && c.chair_id === pickedChairId) return <i key={c.chair_id} className="cdot b-ok" />;
+        if (picked && resolvedPicked && c.chair_id === resolvedPicked) return <i key={c.chair_id} className="cdot b-ok" />;
         if (variant === "admin") return <i key={c.chair_id} className={adminChairDot(c)} />;
         if (variant === "renter") return <i key={c.chair_id} className={renterChairDot(c)} />;
         return <i key={c.chair_id} className={`cdot fill-${dayState(day)}`} />;
@@ -253,6 +254,7 @@ export function MonthGrid({
   canPickDate,
   dotVariant,
   pickedChairId,
+  pickedChairByDate,
 }: {
   month: Date;
   daysByDate: Record<string, DaySchedule | undefined>;
@@ -263,6 +265,7 @@ export function MonthGrid({
   canPickDate?: (d: DaySchedule) => boolean;
   dotVariant?: DotVariant;
   pickedChairId?: string;
+  pickedChairByDate?: Map<string, string>;
 }) {
   const today = todayIso();
   const weeks = monthGridWeeks(month);
@@ -287,7 +290,7 @@ export function MonthGrid({
               >
                 <span className="wd">{p.wd}</span>
                 <span className="num">{p.num}</span>
-                {d ? <ChairDots day={d} variant={dotVariant} picked={picked} pickedChairId={pickedChairId} /> : <span className="dots"><i className="cdot closed" /></span>}
+                {d ? <ChairDots day={d} variant={dotVariant} picked={picked} pickedChairId={pickedChairId} pickedChairByDate={pickedChairByDate} /> : <span className="dots"><i className="cdot closed" /></span>}
               </button>
             );
           })}
@@ -298,8 +301,8 @@ export function MonthGrid({
 }
 
 export function DayStrip({
-  days, selected, onSelect, counts, pickedDates, canPickDate, dotVariant, pickedChairId,
-}: { days: DaySchedule[]; selected: string; onSelect: (d: DaySchedule) => void; counts?: Record<string, number>; pickedDates?: Set<string>; canPickDate?: (d: DaySchedule) => boolean; dotVariant?: DotVariant; pickedChairId?: string }) {
+  days, selected, onSelect, counts, pickedDates, canPickDate, dotVariant, pickedChairId, pickedChairByDate,
+}: { days: DaySchedule[]; selected: string; onSelect: (d: DaySchedule) => void; counts?: Record<string, number>; pickedDates?: Set<string>; canPickDate?: (d: DaySchedule) => boolean; dotVariant?: DotVariant; pickedChairId?: string; pickedChairByDate?: Map<string, string> }) {
   const today = todayIso();
   const picking = !!pickedDates;
   return (
@@ -313,7 +316,7 @@ export function DayStrip({
           <button key={d.date} className={`daypill ${selected === d.date ? "selected" : ""} ${d.date === today ? "today" : ""} ${picked ? "picked" : ""}`} disabled={picking && !pickable} onClick={() => { haptic(); onSelect(d); }}>
             <span className="wd">{p.wd}</span>
             <span className="num">{p.num}</span>
-            <ChairDots day={d} variant={dotVariant} picked={picked} pickedChairId={pickedChairId} />
+            <ChairDots day={d} variant={dotVariant} picked={picked} pickedChairId={pickedChairId} pickedChairByDate={pickedChairByDate} />
             {!picking && n > 0 && <span className="badge">{n}</span>}
           </button>
         );
