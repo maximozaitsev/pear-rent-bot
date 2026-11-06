@@ -3,19 +3,38 @@ import { api, getTelegramWebApp, setToken } from "../../api/client";
 import { useAuth } from "./AuthContext";
 import { Banner, errorText, haptic } from "../../shared/ui";
 
-export function RegisterGate({ reason, inviteToken }: { reason: string; inviteToken: string | null }) {
-  const { refresh } = useAuth();
-  const [token, setTokenValue] = useState(inviteToken ?? "");
+export function RegisterGate({ reason }: { reason: string }) {
+  const { initData: ctxInitData, refresh } = useAuth();
+  const [code, setCode] = useState("");
+  const [devTgId, setDevTgId] = useState("");
+  const [devOpen, setDevOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   async function submit() {
-    const initData = getTelegramWebApp()?.initData;
-    if (!initData) { setError("Откройте Mini App внутри Telegram."); return; }
-    if (!token.trim()) { setError("Введите пригласительный токен."); return; }
+    const tg = getTelegramWebApp();
+    let initData = ctxInitData || tg?.initData || "";
+    if (!initData) {
+      const hash = new URLSearchParams(window.location.hash.slice(1));
+      const qs = new URLSearchParams(window.location.search);
+      initData = hash.get("tgWebAppData") || qs.get("tgWebAppData") || "";
+      if (initData) try { initData = decodeURIComponent(initData); } catch { /* keep */ }
+    }
+    const clean = code.replace(/\s/g, "");
+    if (!/^\d{6}$/.test(clean)) { setError("Введите 6-значный код приглашения."); return; }
     setBusy(true); setError(null);
     try {
-      const auth = await api.register(initData, token.trim());
+      const unsafeUser = tg?.initDataUnsafe?.user;
+      let auth;
+      if (initData) {
+        auth = await api.register(initData, clean);
+      } else if (unsafeUser?.id) {
+        auth = await api.devBypass({ init_data: "dev", invite_code: clean, dev_user: unsafeUser });
+      } else if (devTgId.trim() && /^\d+$/.test(devTgId.trim())) {
+        auth = await api.devBypass({ init_data: "dev", invite_code: clean, dev_user: { id: Number(devTgId.trim()) } });
+      } else {
+        throw new Error("Telegram не передал данные пользователя. Откройте приложение из Telegram.");
+      }
       setToken(auth.access_token);
       haptic("success");
       refresh();
@@ -35,16 +54,20 @@ export function RegisterGate({ reason, inviteToken }: { reason: string; inviteTo
         <p className="muted">Аренда кресел в барбершопе</p>
       </div>
       <section className="card">
-        <h2>Доступ по приглашению</h2>
+        <h2>Доступ по коду</h2>
         <p className="muted">{reason}</p>
-        {inviteToken ? (
-          <Banner kind="ok">Пригласительная ссылка найдена. Подтвердите регистрацию.</Banner>
-        ) : (
-          <label className="field">
-            <span>Пригласительный токен</span>
-            <input className="input" value={token} onChange={(e) => setTokenValue(e.target.value)} placeholder="Вставьте токен" autoCapitalize="off" autoCorrect="off" />
-          </label>
-        )}
+        <label className="field">
+          <span>Код приглашения</span>
+          <input className="input" value={code} onChange={(e) => setCode(e.target.value)} placeholder="6 цифр" inputMode="numeric" maxLength={6} autoCapitalize="off" autoCorrect="off" />
+        </label>
+        <details className="field" style={{ marginTop: 8 }} open={devOpen} onChange={(e) => setDevOpen(e.currentTarget.open)}>
+          <summary style={{ cursor: "pointer", listStyle: "none" }}>
+            <span>Локальная отладка (только для разработчиков)</span>
+            <span style={{ float: "right" }}>{devOpen ? "▲" : "▾"}</span>
+          </summary>
+          <input className="input" value={devTgId} onChange={(e) => setDevTgId(e.target.value)} placeholder="Telegram ID (только при DEV_INSECURE_AUTH_BYPASS=1)" inputMode="numeric" style={{ marginTop: 8 }} />
+          <span className="muted small">Нужно только если Telegram не передал данные, при `DEV_INSECURE_AUTH_BYPASS=1`.</span>
+        </details>
         {error && <Banner kind="bad">{error}</Banner>}
         <button className="btn btn-primary btn-block" disabled={busy} onClick={submit}>{busy ? "Регистрация..." : "Зарегистрироваться"}</button>
       </section>
