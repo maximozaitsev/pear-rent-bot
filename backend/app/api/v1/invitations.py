@@ -19,6 +19,7 @@ router = APIRouter()
 def _out(inv) -> InvitationOut:
     return InvitationOut(
         id=str(inv.id),
+        code=inv.code,
         status=inv.status.value,
         created_by=str(inv.created_by),
         used_by=str(inv.used_by) if inv.used_by else None,
@@ -35,7 +36,7 @@ def create(
 ) -> InvitationCreatedOut:
     invitation, code = create_invitation(db, created_by=admin)
     base = _out(invitation)
-    return InvitationCreatedOut(**base.model_dump(), code=code)
+    return InvitationCreatedOut(**base.model_dump())
 
 
 @router.get("", response_model=list[InvitationOut])

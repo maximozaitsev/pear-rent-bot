@@ -99,10 +99,10 @@ def register(payload: RegisterRequest, db: Session = Depends(get_db)) -> AuthRes
         )
 
 
-    token = payload.invite_code.strip()
+    token = payload.code.strip() if payload.code else ""
     user = register_renter_with_invite(
         db,
-        token=token,
+        code=token,
         telegram_id=tg_user.id,
         username=tg_user.username,
         first_name=tg_user.first_name,
@@ -147,8 +147,8 @@ def dev_bypass(payload: TelegramAuthRequest, db: Session = Depends(get_db)) -> A
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="No Telegram user in initData")
     user = db.scalar(select(User).where(User.telegram_id == telegram_id))
     if user is None:
-        code = (payload.invite_code or "").strip()
+        code = (payload.code or "").strip()
         if not code:
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail={"code": "registration_required", "message": "Введите код приглашения."})
-        user = register_renter_with_invite(db, token=code, telegram_id=telegram_id, username=tg.get("username"), first_name=tg.get("first_name"), last_name=tg.get("last_name"))
+        user = register_renter_with_invite(db, code=code, telegram_id=telegram_id, username=tg.get("username"), first_name=tg.get("first_name"), last_name=tg.get("last_name"))
     return AuthResponse(access_token=create_access_token(user), user=_user_out(user))

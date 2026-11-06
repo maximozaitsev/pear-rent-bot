@@ -45,7 +45,7 @@ def test_create_core_entities_and_relationships(db):
             created_by=admin.id,
         )
     )
-    db.add(Invitation(token_hash="hash-1", status=InvitationStatus.pending, created_by=admin.id))
+    db.add(Invitation(code="123456", status=InvitationStatus.pending, created_by=admin.id))
     db.add(
         Booking(
             chair_id=chair.id,

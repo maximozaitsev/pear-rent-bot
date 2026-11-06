@@ -1,16 +1,11 @@
-import hashlib
 import secrets
 from datetime import UTC, datetime
 
 from fastapi import HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
 from app.models import Invitation, InvitationStatus, User, UserRole
-
-
-def hash_code(code: str) -> str:
-    return hashlib.sha256(code.strip().encode("utf-8")).hexdigest()
 
 
 def create_invitation(db: Session, *, created_by: User) -> tuple[Invitation, str]:
@@ -18,12 +13,12 @@ def create_invitation(db: Session, *, created_by: User) -> tuple[Invitation, str
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin access required")
     for _ in range(20):
         code = f"{secrets.randbelow(1_000_000):06d}"
-        if not db.scalar(select(Invitation.id).where(Invitation.token_hash == hash_code(code))):
+        if not db.scalar(select(Invitation.id).where(Invitation.code == code)):
             break
     else:
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Could not generate code")
     invitation = Invitation(
-        token_hash=hash_code(code),
+        code=code,
         status=InvitationStatus.pending,
         created_by=created_by.id,
     )
@@ -55,7 +50,7 @@ def revoke_invitation(db: Session, invitation_id) -> Invitation:
 def register_renter_with_invite(
     db: Session,
     *,
-    token: str,
+    code: str,
     telegram_id: int,
     username: str | None,
     first_name: str | None,
@@ -63,35 +58,20 @@ def register_renter_with_invite(
 ) -> User:
     """Register a renter using a one-time 6-digit code.
 
-    Locks the invitation row to prevent parallel reuse. Safe with session fixtures that
-    manage outer transactions (uses a savepoint when a transaction is already active).
-    Never allows assigning admin role via invite.
+    The code is claimed atomically via UPDATE ... WHERE code=... AND status='pending'.
+    If no row is updated, the code is invalid or already used.
     """
-    token_digest = hash_code(token)
+    code = code.strip()
     started_tx = not db.in_transaction()
     if started_tx:
         ctx = db.begin()
     else:
         ctx = db.begin_nested()
     with ctx:
-        invitation = db.scalar(
-            select(Invitation).where(Invitation.token_hash == token_digest).with_for_update()
-        )
+        invitation = db.scalar(select(Invitation).where(Invitation.code == code))
         if invitation is None:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND, detail="Код не найден"
-            )
-        if invitation.status == InvitationStatus.used:
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT, detail="Код уже использован"
-            )
-        if invitation.status == InvitationStatus.revoked:
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT, detail="Код отозван"
-            )
-        if invitation.status != InvitationStatus.pending:
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT, detail="Код недоступен"
             )
 
         existing = db.scalar(select(User).where(User.telegram_id == telegram_id))
@@ -110,15 +90,22 @@ def register_renter_with_invite(
             username=username,
             first_name=first_name,
             last_name=last_name,
-            role=UserRole.renter,  # explicit: invite never grants admin
+            role=UserRole.renter,
             is_active=True,
         )
         db.add(user)
         db.flush()
 
-        invitation.status = InvitationStatus.used
-        invitation.used_by = user.id
-        invitation.used_at = datetime.now(UTC)
+        result = db.execute(
+            update(Invitation)
+            .where(Invitation.code == code, Invitation.status == InvitationStatus.pending)
+            .values(status=InvitationStatus.used, used_by=user.id, used_at=datetime.now(UTC))
+        )
+        if result.rowcount == 0:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Код недействителен или уже использован",
+            )
     if not started_tx and db.in_transaction():
         db.commit()
     db.refresh(user)

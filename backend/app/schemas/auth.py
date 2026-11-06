@@ -7,12 +7,12 @@ class TelegramAuthRequest(BaseModel):
     init_data: str = Field(min_length=1)
     # DEV_INSECURE_AUTH_BYPASS only; ignored otherwise.
     dev_user: dict | None = None
-    invite_code: str | None = None
+    code: str | None = None
 
 
 class RegisterRequest(BaseModel):
     init_data: str = Field(min_length=1)
-    invite_code: str = Field(min_length=4, max_length=32)
+    code: str = Field(min_length=4, max_length=32)
 
 
 class UserOut(BaseModel):
@@ -42,6 +42,7 @@ class CompleteRegistrationRequest(BaseModel):
 
 class InvitationOut(BaseModel):
     id: str
+    code: str
     status: str
     created_by: str
     used_by: str | None
@@ -51,4 +52,4 @@ class InvitationOut(BaseModel):
 
 
 class InvitationCreatedOut(InvitationOut):
-    code: str
+    pass

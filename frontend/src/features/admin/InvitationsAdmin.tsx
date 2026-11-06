@@ -24,7 +24,7 @@ export function InvitationsAdmin() {
 
   function message(code: string) {
     const bot = (import.meta.env.VITE_TELEGRAM_BOT_USERNAME as string | undefined) || "pear_chair_rental_bot";
-    return `Вас пригласили в Pear Rent (аренда кресла).\n\n1) Откройте бота: https://t.me/${bot.replace(/^@/, "")}\n2) Нажмите «Запустить» / Start\n3) Откройте мини-приложение\n4) Введите код приглашения: ${code}\n\nКод одноразовый.`;
+    return `Вас пригласили в Pear Rent (аренда кресла).\n\n1) Откройте бота: https://t.me/${bot.replace(/^@/, "")}\n2) Нажмите «Запустить» / Start\n3) Откройте мини-приложение (кнопка меню)\n4) Введите код приглашения: ${code}\n\nКод одноразовый.`;
   }
 
   async function create() {
@@ -63,9 +63,13 @@ export function InvitationsAdmin() {
             <li key={i.id} className="item">
               <div className="grow">
                 <span className={`chip ${st.tone}`}>{st.label}</span>
+                {i.code && <div className="code" style={{ marginTop: 4, fontWeight: 600 }}>{i.code}</div>}
                 <div className="meta" style={{ marginTop: 4 }}>{formatDateTimeDot(i.created_at)}</div>
               </div>
-              {i.status === "pending" && <button className="btn btn-sm btn-danger" onClick={() => revoke(i.id)}>Отозвать</button>}
+              <div className="stack" style={{ gap: 4 }}>
+                {i.status === "pending" && i.code && <button className="btn btn-sm" onClick={() => copy(i.code!)}>Копировать</button>}
+                {i.status === "pending" && <button className="btn btn-sm btn-danger" onClick={() => revoke(i.id)}>Отозвать</button>}
+              </div>
             </li>
           );
         })}

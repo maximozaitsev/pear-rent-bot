@@ -16,7 +16,7 @@ class InvitationStatus(str, enum.Enum):
 class Invitation(UUIDPrimaryKeyMixin, Base):
     __tablename__ = "invitations"
 
-    token_hash: Mapped[str] = mapped_column(String(255), unique=True, nullable=False)
+    code: Mapped[str] = mapped_column(String(6), unique=True, nullable=False)
     status: Mapped[InvitationStatus] = mapped_column(
         Enum(InvitationStatus, name="invitation_status", native_enum=False, length=20),
         nullable=False,

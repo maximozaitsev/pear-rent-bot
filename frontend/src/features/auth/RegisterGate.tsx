@@ -11,7 +11,7 @@ export function RegisterGate({ reason }: { reason: string }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  async function submit() {
+  async function submit(override?: string) {
     const tg = getTelegramWebApp();
     let initData = ctxInitData || tg?.initData || "";
     if (!initData) {
@@ -20,7 +20,7 @@ export function RegisterGate({ reason }: { reason: string }) {
       initData = hash.get("tgWebAppData") || qs.get("tgWebAppData") || "";
       if (initData) try { initData = decodeURIComponent(initData); } catch { /* keep */ }
     }
-    const clean = code.replace(/\s/g, "");
+    const clean = (override ?? code).replace(/\s/g, "");
     if (!/^\d{6}$/.test(clean)) { setError("Введите 6-значный код приглашения."); return; }
     setBusy(true); setError(null);
     try {
@@ -29,9 +29,9 @@ export function RegisterGate({ reason }: { reason: string }) {
       if (initData) {
         auth = await api.register(initData, clean);
       } else if (unsafeUser?.id) {
-        auth = await api.devBypass({ init_data: "dev", invite_code: clean, dev_user: unsafeUser });
+        auth = await api.devBypass({ init_data: "dev", code: clean, dev_user: unsafeUser });
       } else if (devTgId.trim() && /^\d+$/.test(devTgId.trim())) {
-        auth = await api.devBypass({ init_data: "dev", invite_code: clean, dev_user: { id: Number(devTgId.trim()) } });
+        auth = await api.devBypass({ init_data: "dev", code: clean, dev_user: { id: Number(devTgId.trim()) } });
       } else {
         throw new Error("Telegram не передал данные пользователя. Откройте приложение из Telegram.");
       }
@@ -58,7 +58,7 @@ export function RegisterGate({ reason }: { reason: string }) {
         <p className="muted">{reason}</p>
         <label className="field">
           <span>Код приглашения</span>
-          <input className="input" value={code} onChange={(e) => setCode(e.target.value)} placeholder="6 цифр" inputMode="numeric" maxLength={6} autoCapitalize="off" autoCorrect="off" />
+          <input className="input" value={code} onChange={(e) => { const v = e.target.value; setCode(v); if (v.replace(/\s/g, "").length === 6) submit(v); }} placeholder="6 цифр" inputMode="numeric" maxLength={6} autoCapitalize="off" autoCorrect="off" />
         </label>
         <details className="field" style={{ marginTop: 8 }} open={devOpen} onChange={(e) => setDevOpen(e.currentTarget.open)}>
           <summary style={{ cursor: "pointer", listStyle: "none" }}>
@@ -69,7 +69,7 @@ export function RegisterGate({ reason }: { reason: string }) {
           <span className="muted small">Нужно только если Telegram не передал данные, при `DEV_INSECURE_AUTH_BYPASS=1`.</span>
         </details>
         {error && <Banner kind="bad">{error}</Banner>}
-        <button className="btn btn-primary btn-block" disabled={busy} onClick={submit}>{busy ? "Регистрация..." : "Зарегистрироваться"}</button>
+        <button className="btn btn-primary btn-block" disabled={busy} onClick={() => submit()}>{busy ? "Регистрация..." : "Зарегистрироваться"}</button>
       </section>
     </main>
   );

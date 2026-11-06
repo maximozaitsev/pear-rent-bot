@@ -71,12 +71,12 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ init_data: initData }),
     }),
-  register: (initData: string, inviteCode: string) =>
+  register: (initData: string, code: string) =>
     request<AuthResponse>("/auth/register", {
       method: "POST",
-      body: JSON.stringify({ init_data: initData, invite_code: inviteCode.trim() }),
+      body: JSON.stringify({ init_data: initData, code: code.trim() }),
     }),
-  devBypass: (payload: { init_data: string; invite_code?: string; dev_user?: unknown }) =>
+  devBypass: (payload: { init_data: string; code?: string; dev_user?: unknown }) =>
     request<AuthResponse>("/auth/dev-bypass", {
       method: "POST",
       body: JSON.stringify(payload),
