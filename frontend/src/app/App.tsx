@@ -140,9 +140,7 @@ function Router() {
       </main>
     );
   if (state.status === "anonymous")
-    return (
-      <RegisterGate reason={state.reason} inviteToken={state.inviteToken} />
-    );
+    return <RegisterGate reason={state.reason} />;
   return state.user.role === "admin" ? <AdminApp /> : <RenterApp />;
 }
 

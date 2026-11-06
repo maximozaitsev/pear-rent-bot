@@ -131,8 +131,7 @@ export interface Invitation {
   created_at: string;
   used_at: string | null;
   revoked_at: string | null;
-  invite_token?: string;
-  invite_link?: string;
+  code?: string;
 }
 
 export interface WeeklyScheduleItem {

@@ -2,7 +2,7 @@
 
 interface TelegramWebApp {
   initData: string;
-  initDataUnsafe?: { start_param?: string; user?: { id: number } };
+  initDataUnsafe?: { user?: { id: number; username?: string; first_name?: string; last_name?: string } };
   ready: () => void;
   expand: () => void;
   close?: () => void;

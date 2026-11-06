@@ -5,12 +5,14 @@ from pydantic import BaseModel, Field
 
 class TelegramAuthRequest(BaseModel):
     init_data: str = Field(min_length=1)
-    start_param: str | None = None
+    # DEV_INSECURE_AUTH_BYPASS only; ignored otherwise.
+    dev_user: dict | None = None
+    invite_code: str | None = None
 
 
 class RegisterRequest(BaseModel):
     init_data: str = Field(min_length=1)
-    invite_token: str = Field(min_length=20)
+    invite_code: str = Field(min_length=4, max_length=32)
 
 
 class UserOut(BaseModel):
@@ -42,5 +44,4 @@ class InvitationOut(BaseModel):
 
 
 class InvitationCreatedOut(InvitationOut):
-    invite_token: str
-    invite_link: str
+    code: str

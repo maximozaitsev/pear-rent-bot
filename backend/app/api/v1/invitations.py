@@ -8,7 +8,6 @@ from app.core.db import get_db
 from app.models import User
 from app.schemas.auth import InvitationCreatedOut, InvitationOut
 from app.services.invitations import (
-    build_invite_link,
     create_invitation,
     list_invitations,
     revoke_invitation,
@@ -34,13 +33,9 @@ def create(
     db: Session = Depends(get_db),
     admin: User = Depends(require_admin),
 ) -> InvitationCreatedOut:
-    invitation, token = create_invitation(db, created_by=admin)
+    invitation, code = create_invitation(db, created_by=admin)
     base = _out(invitation)
-    return InvitationCreatedOut(
-        **base.model_dump(),
-        invite_token=token,
-        invite_link=build_invite_link(token),
-    )
+    return InvitationCreatedOut(**base.model_dump(), code=code)
 
 
 @router.get("", response_model=list[InvitationOut])

@@ -66,15 +66,20 @@ export function conflictText(detail: unknown): string | null {
 }
 
 export const api = {
-  authTelegram: (initData: string, startParam?: string | null) =>
+  authTelegram: (initData: string) =>
     request<AuthResponse>("/auth/telegram", {
       method: "POST",
-      body: JSON.stringify({ init_data: initData, start_param: startParam ?? undefined }),
+      body: JSON.stringify({ init_data: initData }),
     }),
-  register: (initData: string, inviteToken: string) =>
+  register: (initData: string, inviteCode: string) =>
     request<AuthResponse>("/auth/register", {
       method: "POST",
-      body: JSON.stringify({ init_data: initData, invite_token: inviteToken }),
+      body: JSON.stringify({ init_data: initData, invite_code: inviteCode.trim() }),
+    }),
+  devBypass: (payload: { init_data: string; invite_code?: string; dev_user?: unknown }) =>
+    request<AuthResponse>("/auth/dev-bypass", {
+      method: "POST",
+      body: JSON.stringify(payload),
     }),
   me: () => request<User>("/auth/me"),
   scheduleDay: (date: string) => request<DaySchedule>(`/schedule/day?date=${encodeURIComponent(date)}`),
@@ -127,13 +132,4 @@ export const api = {
 
 export function getTelegramWebApp() {
   return window.Telegram?.WebApp;
-}
-
-export function getInviteToken(): string | null {
-  const tg = getTelegramWebApp();
-  const fromStart = tg?.initDataUnsafe?.start_param;
-  if (fromStart?.startsWith("invite_")) return fromStart.slice("invite_".length);
-  if (fromStart && fromStart.length >= 20) return fromStart;
-  const params = new URLSearchParams(window.location.search);
-  return params.get("invite_token") || params.get("startapp")?.replace(/^invite_/, "") || null;
 }

@@ -6,8 +6,8 @@ import { Banner, Empty, errorText, haptic } from "../../shared/ui";
 
 const STATUS: Record<string, { label: string; tone: string }> = {
   pending: { label: "ожидает", tone: "warn" },
-  used: { label: "использовано", tone: "ok" },
-  revoked: { label: "отозвано", tone: "mute" },
+  used: { label: "использован", tone: "ok" },
+  revoked: { label: "отозван", tone: "mute" },
 };
 
 export function InvitationsAdmin() {
@@ -21,6 +21,11 @@ export function InvitationsAdmin() {
     try { setItems(await api.adminInvitations()); } catch (e) { setError(errorText(e)); }
   }
   useEffect(() => { load(); }, []);
+
+  function message(code: string) {
+    const bot = (import.meta.env.VITE_TELEGRAM_BOT_USERNAME as string | undefined) || "pear_chair_rental_bot";
+    return `Вас пригласили в Pear Rent (аренда кресла).\n\n1) Откройте бота: https://t.me/${bot.replace(/^@/, "")}\n2) Нажмите «Запустить» / Start\n3) Откройте мини-приложение\n4) Введите код приглашения: ${code}\n\nКод одноразовый.`;
+  }
 
   async function create() {
     setBusy(true); setError(null); setCopied(false);
@@ -38,19 +43,19 @@ export function InvitationsAdmin() {
   return (
     <>
       {error && <Banner kind="bad">{error}</Banner>}
-      <button className="btn btn-primary btn-block" disabled={busy} onClick={create}>{busy ? "Создание..." : "+ Создать приглашение"}</button>
+      <button className="btn btn-primary btn-block" disabled={busy} onClick={create}>{busy ? "Создание..." : "+ Создать код приглашения"}</button>
 
-      {created?.invite_link && (
+      {created?.code && (
         <section className="card">
-          <h2>Новая ссылка</h2>
-          <p className="muted small">Показывается один раз — скопируйте и отправьте арендатору.</p>
-          <div className="code">{created.invite_link}</div>
-          <button className="btn btn-block" onClick={() => copy(created.invite_link!)}>{copied ? "Скопировано ✓" : "Скопировать ссылку"}</button>
+          <h2>Код: {created.code}</h2>
+          <p className="muted small">Код одноразовый — скопируйте сообщение и отправьте арендатору.</p>
+          <div className="code" style={{ whiteSpace: "pre-wrap" }}>{message(created.code)}</div>
+          <button className="btn btn-block" onClick={() => copy(message(created.code!))}>{copied ? "Скопировано ✓" : "Скопировать сообщение"}</button>
         </section>
       )}
 
       <div className="section-label">История</div>
-      {items?.length === 0 && <Empty icon="✉️">Приглашений пока нет.</Empty>}
+      {items?.length === 0 && <Empty icon="✉️">Кодов пока нет.</Empty>}
       <ul className="list">
         {items?.map((i) => {
           const st = STATUS[i.status] ?? { label: i.status, tone: "mute" };

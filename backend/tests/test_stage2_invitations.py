@@ -11,7 +11,7 @@ from app.core.config import settings
 from app.core.db import get_db
 from app.main import app
 from app.models import Invitation, InvitationStatus, User, UserRole
-from app.services.invitations import hash_token
+from app.services.invitations import hash_code
 
 
 def build_init_data(*, bot_token: str, user: dict) -> str:
@@ -36,15 +36,15 @@ def test_admin_create_list_revoke_invitation(db, monkeypatch):
         created = client.post("/api/v1/admin/invitations", headers=headers)
         assert created.status_code == 201
         body = created.json()
-        assert body["invite_token"]
-        assert body["invite_link"]
+        assert body["code"] and len(body["code"]) == 6 and body["code"].isdigit()
+        assert "invite_token" not in body and "invite_link" not in body
         assert body["status"] == "pending"
         invite_id = body["id"]
 
         listing = client.get("/api/v1/admin/invitations", headers=headers)
         assert listing.status_code == 200
         assert listing.json()[0]["id"] == invite_id
-        assert "invite_token" not in listing.json()[0]
+        assert "code" not in listing.json()[0]
 
         revoked = client.post(f"/api/v1/admin/invitations/{invite_id}/revoke", headers=headers)
         assert revoked.status_code == 200
@@ -60,7 +60,7 @@ def test_register_by_valid_invite_once_then_reused_fails(db, monkeypatch):
     db.add(admin)
     db.flush()
     invitation = Invitation(
-        token_hash=hash_token("valid-token-1234567890"),
+        token_hash=hash_code("123456"),
         status=InvitationStatus.pending,
         created_by=admin.id,
     )
@@ -73,14 +73,14 @@ def test_register_by_valid_invite_once_then_reused_fails(db, monkeypatch):
         init_data = build_init_data(bot_token="test-token", user={"id": 9202, "username": "u"})
         reg = client.post(
             "/api/v1/auth/register",
-            json={"init_data": init_data, "invite_token": "valid-token-1234567890"},
+            json={"init_data": init_data, "invite_code": "123456"},
         )
         assert reg.status_code == 201
         assert reg.json()["user"]["role"] == "renter"
 
         reg2 = client.post(
             "/api/v1/auth/register",
-            json={"init_data": init_data, "invite_token": "valid-token-1234567890"},
+            json={"init_data": init_data, "invite_code": "123456"},
         )
         assert reg2.status_code == 409
     finally:
@@ -94,43 +94,19 @@ def test_register_invalid_revoked_used_scenarios(db, monkeypatch):
     renter = User(telegram_id=9399, role=UserRole.renter, is_active=True)
     db.add_all([admin, renter])
     db.flush()
-    db.add(
-        Invitation(
-            token_hash=hash_token("revoked-token-1234567890"),
-            status=InvitationStatus.revoked,
-            created_by=admin.id,
-        )
-    )
-    db.add(
-        Invitation(
-            token_hash=hash_token("used-token-1234567890123"),
-            status=InvitationStatus.used,
-            created_by=admin.id,
-            used_by=renter.id,
-        )
-    )
+    db.add(Invitation(token_hash=hash_code("111111"), status=InvitationStatus.revoked, created_by=admin.id))
+    db.add(Invitation(token_hash=hash_code("222222"), status=InvitationStatus.used, created_by=admin.id, used_by=renter.id))
     db.commit()
 
     client = TestClient(app)
     app.dependency_overrides[get_db] = lambda: db
     try:
         init_data = build_init_data(bot_token="test-token", user={"id": 9302})
-        bad = client.post(
-            "/api/v1/auth/register",
-            json={"init_data": init_data, "invite_token": "nope-token-1234567890"},
-        )
+        bad = client.post("/api/v1/auth/register", json={"init_data": init_data, "invite_code": "999999"})
         assert bad.status_code == 404
-
-        revoked = client.post(
-            "/api/v1/auth/register",
-            json={"init_data": init_data, "invite_token": "revoked-token-1234567890"},
-        )
+        revoked = client.post("/api/v1/auth/register", json={"init_data": init_data, "invite_code": "111111"})
         assert revoked.status_code == 409
-
-        used = client.post(
-            "/api/v1/auth/register",
-            json={"init_data": init_data, "invite_token": "used-token-1234567890123"},
-        )
+        used = client.post("/api/v1/auth/register", json={"init_data": init_data, "invite_code": "222222"})
         assert used.status_code == 409
     finally:
         app.dependency_overrides.clear()
@@ -158,13 +134,7 @@ def test_parallel_registration_one_token_one_success():
     admin = User(telegram_id=9401, role=UserRole.admin, is_active=True)
     setup.add(admin)
     setup.flush()
-    setup.add(
-        Invitation(
-            token_hash=hash_token("parallel-token-123456789"),
-            status=InvitationStatus.pending,
-            created_by=admin.id,
-        )
-    )
+    setup.add(Invitation(token_hash=hash_code("654321"), status=InvitationStatus.pending, created_by=admin.id))
     setup.commit()
     setup.close()
 
@@ -173,14 +143,7 @@ def test_parallel_registration_one_token_one_success():
     def attempt(tg_id: int):
         db = SessionLocal()
         try:
-            register_renter_with_invite(
-                db,
-                token="parallel-token-123456789",
-                telegram_id=tg_id,
-                username=None,
-                first_name="R",
-                last_name=None,
-            )
+            register_renter_with_invite(db, token="654321", telegram_id=tg_id, username=None, first_name="R", last_name=None)
             return "ok"
         except Exception as exc:
             db.rollback()
