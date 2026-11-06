@@ -16,6 +16,20 @@ class Settings(BaseSettings):
 
     database_url: str = "postgresql+psycopg://postgres:postgres@localhost:5432/pear_rent"
 
+    @field_validator("database_url", mode="before")
+    @classmethod
+    def _normalize_database_url(cls, value: object) -> object:
+        if isinstance(value, str):
+            raw = value.strip()
+            if raw.startswith("postgres://"):
+                return raw.replace("postgres://", "postgresql+psycopg://", 1)
+            if raw.startswith("postgresql://") and "+psycopg" not in raw:
+                return raw.replace("postgresql://", "postgresql+psycopg://", 1)
+            if raw.startswith("https://"):
+                return raw.replace("https://", "postgresql+psycopg://", 1)
+            return raw
+        return value
+
     telegram_bot_token: str = ""
     telegram_bot_username: str = ""
     telegram_mini_app_url: str = "https://example.com"
