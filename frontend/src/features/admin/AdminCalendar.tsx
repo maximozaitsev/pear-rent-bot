@@ -94,6 +94,7 @@ export function AdminCalendar() {
           else setMonthAnchor(firstOfMonth(new Date(selectedDate ? selectedDate + "T00:00:00Z" : Date.now())));
         }}
         onChange={(d) => { if (mode === "month") setMonthAnchor(firstOfMonth(d)); else setWeekStart(d); }}
+        onSelectToday={setSelectedDate}
       />
       {error && <Banner kind="bad" onRetry={load}>{error}</Banner>}
       {loading && ((mode === "week" && !days.length) || (mode === "month" && Object.keys(monthDays).length === 0)) && <Loader />}
@@ -101,9 +102,9 @@ export function AdminCalendar() {
       {(mode === "week" ? !!days.length : Object.keys(monthDays).length > 0 || !loading) && (
         <>
           {mode === "week" ? (
-            <DayStrip days={days} selected={selectedDate} onSelect={(d) => setSelectedDate(d.date)} counts={counts} />
+            <DayStrip days={days} selected={selectedDate} onSelect={(d) => setSelectedDate(d.date)} counts={counts} dotVariant="admin" />
           ) : (
-            <MonthGrid month={monthAnchor} daysByDate={monthDays} selected={selectedDate} onSelect={(d) => setSelectedDate(d.date)} loading={loading} />
+            <MonthGrid month={monthAnchor} daysByDate={monthDays} selected={selectedDate} onSelect={(d) => setSelectedDate(d.date)} loading={loading} dotVariant="admin" />
           )}
 
           {selectedDay && (
