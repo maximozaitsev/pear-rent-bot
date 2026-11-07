@@ -50,8 +50,12 @@ def _disable_telegram_bot(monkeypatch):
     monkeypatch.setattr(notifications_service, "get_bot", lambda: None)
     monkeypatch.setattr(notifications_service, "notify_booking_created", lambda **_: None)
     monkeypatch.setattr(notifications_service, "notify_booking_cancelled", lambda **_: None)
+    if hasattr(notifications_service, "notify_bulk_bookings_created"):
+        monkeypatch.setattr(notifications_service, "notify_bulk_bookings_created", lambda **_: None)
     monkeypatch.setattr(bookings_api, "notify_booking_created", lambda **_: None)
     monkeypatch.setattr(bookings_api, "notify_booking_cancelled", lambda **_: None)
+    if hasattr(bookings_api, "notify_bulk_bookings_created"):
+        monkeypatch.setattr(bookings_api, "notify_bulk_bookings_created", lambda **_: None)
 
 
 

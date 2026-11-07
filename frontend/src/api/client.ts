@@ -2,6 +2,7 @@ import type {
   AuthResponse,
   AvailabilitySchedule,
   Booking,
+  BulkBookingResponse,
   Chair,
   DateOverride,
   DaySchedule,
@@ -106,6 +107,8 @@ export const api = {
     ends_at: string;
     booking_type: "hourly" | "full_day";
   }) => request<Booking>("/bookings", { method: "POST", body: JSON.stringify(payload) }),
+  createBookingsBulk: (items: Array<{ chair_id: string; starts_at: string; ends_at: string; booking_type: "hourly" | "full_day" }>) =>
+    request<BulkBookingResponse>("/bookings/bulk", { method: "POST", body: JSON.stringify({ items }) }),
   myBookings: () => request<Booking[]>("/bookings/my"),
   cancelBooking: (id: string, reason?: string) =>
     request<Booking>(`/bookings/${id}/cancel`, { method: "POST", body: JSON.stringify({ reason }) }),

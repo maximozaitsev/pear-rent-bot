@@ -44,6 +44,22 @@ class PaymentStatusRequest(BaseModel):
     payment_status: PaymentStatus
 
 
+class BulkBookingItemRequest(BaseModel):
+    chair_id: uuid.UUID
+    starts_at: datetime
+    ends_at: datetime
+    booking_type: BookingType
+
+    @field_validator("starts_at", "ends_at", mode="before")
+    @classmethod
+    def _shop_local(cls, v: object) -> object:
+        return _coerce_shop_datetime(v)
+
+
+class BulkBookingCreateRequest(BaseModel):
+    items: list[BulkBookingItemRequest] = Field(min_length=1, max_length=100)
+
+
 class RenterBriefOut(BaseModel):
     id: str
     telegram_id: int
@@ -70,3 +86,19 @@ class BookingOut(BaseModel):
     cancelled_at: str | None = None
     cancellation_reason: str | None = None
     created_at: str | None = None
+
+
+class BulkBookingResultItem(BaseModel):
+    date: str
+    chair_id: str
+    ok: bool
+    booking: BookingOut | None = None
+    error: str | None = None
+
+
+class BulkBookingCreateResponse(BaseModel):
+    created_count: int
+    failed_count: int
+    total_amount: int
+    currency: str
+    results: list[BulkBookingResultItem]

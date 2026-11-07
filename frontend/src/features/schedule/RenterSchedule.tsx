@@ -176,33 +176,44 @@ export function RenterSchedule({ refreshKey, defaultMode }: { refreshKey?: numbe
     if (picked.size === 0) return;
     setBookingBusy(true); setError(null); setBookingReport(null);
     const items = Array.from(picked.values()).sort((a, b) => a.date.localeCompare(b.date));
-    const ok: PickedDay[] = [];
-    const fail = new Map<string, PickedDay>();
     try {
-      for (const item of items) {
+      const payload = items.map((item) => {
         const day = daysByDate[item.date];
         const wh = day?.working_hours;
-        if (!day || !wh?.is_open || !wh.open_time || !wh.close_time) { fail.set(item.date, item); continue; }
-        try {
-          await api.createBooking({
-            chair_id: item.chairId,
-            starts_at: `${item.date}T${wh.open_time.slice(0, 5)}:00`,
-            ends_at: `${item.date}T${wh.close_time.slice(0, 5)}:00`,
-            booking_type: "full_day",
-          });
-          ok.push(item);
-        } catch { fail.set(item.date, item); }
+        if (!day || !wh?.is_open || !wh.open_time || !wh.close_time) return null;
+        return {
+          chair_id: item.chairId,
+          starts_at: `${item.date}T${wh.open_time.slice(0, 5)}:00`,
+          ends_at: `${item.date}T${wh.close_time.slice(0, 5)}:00`,
+          booking_type: "full_day" as const,
+          _date: item.date,
+          _chairName: item.chairName,
+          _isAlt: item.isAlt,
+        };
+      });
+      const valid = payload.filter((p): p is NonNullable<typeof p> => !!p);
+      if (valid.length === 0) {
+        setError("Нет валидных дней для бронирования.");
+        return;
       }
+      const res = await api.createBookingsBulk(valid.map(({ chair_id, starts_at, ends_at, booking_type }) => ({ chair_id, starts_at, ends_at, booking_type })));
       await load();
-      setPicked(fail);
-      if (ok.length) {
-        haptic(ok.length === items.length ? "success" : "light");
-        const byChair = ok.reduce<Record<string, number>>((m, i) => ({ ...m, [i.chairName]: (m[i.chairName] ?? 0) + 1 }), {});
+      const okDates = new Set(res.results.filter((r) => r.ok).map((r) => r.date));
+      const failedDates = new Set(res.results.filter((r) => !r.ok).map((r) => r.date));
+      setPicked(new Map(Array.from(picked.entries()).filter(([d]) => failedDates.has(d))));
+      if (res.created_count) {
+        haptic(res.failed_count === 0 ? "success" : "light");
+        const okItems = valid.filter((v) => okDates.has(v._date));
+        const byChair = okItems.reduce<Record<string, number>>((m, i) => ({ ...m, [i._chairName]: (m[i._chairName] ?? 0) + 1 }), {});
         const summary = Object.entries(byChair).map(([n, c]) => `${n}: ${c}`).join(", ");
-        setBookingReport(`Забронировано: ${ok.length} дн. · ${formatMoney(ok.length * FULL_DAY_PRICE)} (${summary}).${fail.size ? ` Не удалось: ${fail.size}.` : ""}`);
+        setBookingReport(`Забронировано: ${res.created_count} дн. · ${formatMoney(res.total_amount)}${summary ? ` (${summary})` : ""}.${res.failed_count ? ` Не удалось: ${res.failed_count}.` : ""}`);
       } else {
-        setError("Не удалось создать бронирования. Расписание обновлено.");
+        haptic("error");
+        setError(res.results[0]?.error ? `Не удалось создать бронирования: ${res.results[0].error}` : "Не удалось создать бронирования. Расписание обновлено.");
       }
+    } catch (e) {
+      haptic("error");
+      setError(errorText(e, "Не удалось создать бронирования"));
     } finally { setBookingBusy(false); }
   }
 

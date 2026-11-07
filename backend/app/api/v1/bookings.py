@@ -7,17 +7,21 @@ from sqlalchemy.orm import Session
 from app.core.auth import get_current_user, require_admin
 from app.core.db import get_db
 from app.models import Booking, BookingStatus, PaymentStatus, User, UserRole
-from app.notifications.service import notify_booking_cancelled, notify_booking_created
+from app.notifications.service import notify_booking_cancelled, notify_booking_created, notify_bulk_bookings_created
 from app.schemas.bookings import (
     BookingCancelRequest,
     BookingCreateRequest,
     BookingOut,
+    BulkBookingCreateRequest,
+    BulkBookingCreateResponse,
+    BulkBookingResultItem,
     PaymentStatusRequest,
     RenterBriefOut,
 )
 from app.services.bookings import (
     cancel_booking,
     create_booking,
+    create_bookings_bulk,
     get_booking_for_actor,
     list_admin_bookings,
     list_my_bookings,
@@ -60,6 +64,48 @@ def _booking_out(booking: Booking, *, viewer: User) -> BookingOut:
         cancellation_reason=booking.cancellation_reason if show_admin else None,
         created_at=booking.created_at.isoformat() if booking.created_at else None,
     )
+
+
+@router.post("/bookings/bulk", response_model=BulkBookingCreateResponse, status_code=201)
+def create_bulk(
+    payload: BulkBookingCreateRequest,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    if user.role != UserRole.renter:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Bulk booking is for renters")
+    items = [
+        {
+            "chair_id": it.chair_id,
+            "starts_at": it.starts_at,
+            "ends_at": it.ends_at,
+            "booking_type": it.booking_type,
+            "renter_id": user.id,
+        }
+        for it in payload.items
+    ]
+    bookings, failures = create_bookings_bulk(db, actor=user, items=items)
+    if bookings:
+        notify_bulk_bookings_created(booking_ids=[b.id for b in bookings], actor_id=user.id)
+    outs = [_booking_out(b, viewer=user) for b in bookings]
+    results = [
+        BulkBookingResultItem(date=localize_shop(b.starts_at).date().isoformat(), chair_id=str(b.chair_id), ok=True, booking=out)
+        for b, out in zip(bookings, outs, strict=True)
+    ]
+    for f in failures:
+        results.append(
+            BulkBookingResultItem(
+                date=localize_shop(f["starts_at"]).date().isoformat(),
+                chair_id=str(f["chair_id"]),
+                ok=False,
+                error=f.get("error"),
+            )
+        )
+    # Preserve request order by date+chair as best effort? not critical; keep stable-ish.
+    results.sort(key=lambda r: (r.date, r.chair_id, 0 if r.ok else 1))
+    total = sum(b.price_amount for b in bookings)
+    currency = bookings[0].currency if bookings else "BYN"
+    return BulkBookingCreateResponse(created_count=len(bookings), failed_count=len(failures), total_amount=total, currency=currency, results=results)
 
 
 @router.post("/bookings", response_model=BookingOut, status_code=201)

@@ -22,6 +22,8 @@ EVENT_BOOKING_CREATED_RENTER = "booking_created_renter"
 EVENT_BOOKING_CREATED_ADMIN = "booking_created_admin"
 EVENT_BOOKING_CANCELLED_BY_RENTER_ADMIN = "booking_cancelled_by_renter_admin"
 EVENT_BOOKING_CANCELLED_BY_ADMIN_RENTER = "booking_cancelled_by_admin_renter"
+EVENT_BOOKING_CREATED_BULK_RENTER = "booking_created_bulk_renter"
+EVENT_BOOKING_CREATED_BULK_ADMIN = "booking_created_bulk_admin"
 
 
 def _money(amount_kopeks: int, currency: str) -> str:
@@ -204,6 +206,116 @@ def _dispatch_events(
             if not settings.telegram_bot_token and not (get_bot() and type(get_bot()).__module__.startswith("unittest.mock")):
                 log.status = "failed"
                 log.attempts = log.attempts
+                log.last_error = "telegram bot not configured"
+                db.commit()
+                logger.warning("notification skipped: bot not configured event=%s recipient=%s", event_type, recipient_id)
+                continue
+            ok, err = _send_notification(recipient.telegram_id, text)
+            log.attempts = MAX_ATTEMPTS if not ok else max(log.attempts, 1)
+            if ok:
+                log.status = "sent"
+                log.sent_at = datetime.now(UTC)
+                log.last_error = None
+            else:
+                log.status = "failed"
+                log.last_error = err
+            db.commit()
+    except Exception:
+        logger.exception("notification dispatch failed event=%s booking=%s", event_type, booking_id)
+    finally:
+        db.close()
+
+
+def _build_bulk_created_messages(
+    *, recipient: str, bookings: list[Booking], chair_names: dict[uuid.UUID, str], renter_name: str
+) -> str:
+    by_day: dict[str, list[Booking]] = {}
+    for b in sorted(bookings, key=lambda x: x.starts_at):
+        day = localize_shop(b.starts_at).strftime("%Y-%m-%d")
+        by_day.setdefault(day, []).append(b)
+    lines: list[str] = []
+    total = 0
+    currency = bookings[0].currency if bookings else "BYN"
+    for day, items in by_day.items():
+        day_total = sum(i.price_amount for i in items)
+        total += day_total
+        chairs = ", ".join(sorted({chair_names.get(i.chair_id, str(i.chair_id)) for i in items}))
+        count = len(items)
+        label = "день" if count == 1 else "дней/слотов"
+        lines.append(f"- {day}: {chairs}, {count} {label}, {_money(day_total, currency)}")
+    summary = "\n".join(lines)
+    total_s = _money(total, currency)
+    if recipient == "renter":
+        return f"Бронирования подтверждены.\nКоличество: {len(bookings)}\n{summary}\nИтого: {total_s}"
+    return (
+        "Новые бронирования (массовый выбор).\n"
+        f"Арендатор: {renter_name}\n"
+        f"Количество: {len(bookings)}\n"
+        f"{summary}\n"
+        f"Итого: {total_s}"
+    )
+
+
+def notify_bulk_bookings_created(*, booking_ids: list[uuid.UUID], actor_id: uuid.UUID) -> None:
+    """Single aggregated notification per recipient for a bulk selection. Never raises."""
+    if not booking_ids:
+        return
+    try:
+        db = SessionLocal()
+        try:
+            bookings = list(db.scalars(select(Booking).where(Booking.id.in_(booking_ids))))
+            if not bookings:
+                return
+            renter = db.get(User, bookings[0].renter_id)
+            admins = _admin_recipients(db)
+            renter_id = renter.id if renter else None
+            admin_ids = [a.id for a in admins if a.id != bookings[0].renter_id]
+            chair_ids = {b.chair_id for b in bookings}
+            chairs = list(db.scalars(select(Chair).where(Chair.id.in_(chair_ids)))) if chair_ids else []
+            chair_names = {c.id: c.name for c in chairs}
+            renter_name = _renter_label(renter) if renter else str(bookings[0].renter_id)
+        finally:
+            db.close()
+
+        anchor = bookings[0].id
+        if renter_id is not None:
+            text = _build_bulk_created_messages(
+                recipient="renter", bookings=bookings, chair_names=chair_names, renter_name=renter_name
+            )
+            _dispatch_text_event(
+                event_type=EVENT_BOOKING_CREATED_BULK_RENTER, booking_id=anchor, recipient_ids=[renter_id], text=text
+            )
+        if admin_ids:
+            text = _build_bulk_created_messages(
+                recipient="admin", bookings=bookings, chair_names=chair_names, renter_name=renter_name
+            )
+            _dispatch_text_event(
+                event_type=EVENT_BOOKING_CREATED_BULK_ADMIN, booking_id=anchor, recipient_ids=admin_ids, text=text
+            )
+    except Exception:
+        logger.exception("notify_bulk_bookings_created failed count=%s", len(booking_ids))
+
+
+def _dispatch_text_event(*, event_type: str, booking_id: uuid.UUID, recipient_ids: list[uuid.UUID], text: str) -> None:
+    """Send a prebuilt text (used for aggregated bulk notifications)."""
+    try:
+        db = SessionLocal()
+    except Exception:
+        logger.exception("notification dispatch could not open db session")
+        return
+    try:
+        for recipient_id in recipient_ids:
+            log = _get_or_create_log(db, event_type=event_type, booking_id=booking_id, recipient_user_id=recipient_id)
+            if log is None or log.status == "sent":
+                continue
+            recipient = db.get(User, recipient_id)
+            if recipient is None or not recipient.is_active:
+                log.status = "skipped"
+                log.last_error = "recipient missing or inactive"
+                db.commit()
+                continue
+            if not settings.telegram_bot_token and not (get_bot() and type(get_bot()).__module__.startswith("unittest.mock")):
+                log.status = "failed"
                 log.last_error = "telegram bot not configured"
                 db.commit()
                 logger.warning("notification skipped: bot not configured event=%s recipient=%s", event_type, recipient_id)

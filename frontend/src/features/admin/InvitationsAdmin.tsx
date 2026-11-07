@@ -23,8 +23,15 @@ export function InvitationsAdmin() {
   useEffect(() => { load(); }, []);
 
   function message(code: string) {
-    const bot = (import.meta.env.VITE_TELEGRAM_BOT_USERNAME as string | undefined) || "pear_chair_rental_bot";
-    return `Вас пригласили в Pear Rent (аренда кресла).\n\n1) Откройте бота: https://t.me/${bot.replace(/^@/, "")}\n2) Нажмите «Запустить» / Start\n3) Откройте мини-приложение (кнопка меню)\n4) Введите код приглашения: ${code}\n\nКод одноразовый.`;
+    const bot = ((import.meta.env.VITE_TELEGRAM_BOT_USERNAME as string | undefined) || "pear_chair_rental_bot").replace(/^@/, "");
+    return `Привет! Приглашаю тебя в Pear Rent — тут можно бронировать кресло.
+
+1) Открой бота: @${bot}
+2) Нажми «Запустить» /start
+3) Открой мини-приложение через кнопку меню
+4) Введи код приглашения: ${code}
+
+Код одноразовый.`;
   }
 
   async function create() {
@@ -47,10 +54,21 @@ export function InvitationsAdmin() {
 
       {created?.code && (
         <section className="card">
-          <h2>Код: {created.code}</h2>
-          <p className="muted small">Код одноразовый — скопируйте сообщение и отправьте арендатору.</p>
+          <h2>Код приглашения</h2>
+          <p className="muted small">Код одноразовый — скопируй и отправь арендатору.</p>
+          <button
+            type="button"
+            className="code"
+            title="Нажми, чтобы скопировать код"
+            onClick={() => copy(created.code!)}
+            style={{ width: "100%", textAlign: "center", fontWeight: 700, fontSize: 18, letterSpacing: "0.08em", cursor: "pointer", marginBottom: 8 }}
+          >
+            {created.code}
+          </button>
           <div className="code" style={{ whiteSpace: "pre-wrap" }}>{message(created.code)}</div>
-          <button className="btn btn-block" onClick={() => copy(message(created.code!))}>{copied ? "Скопировано ✓" : "Скопировать сообщение"}</button>
+          <div className="stack" style={{ marginTop: 8 }}>
+            <button className="btn btn-block" onClick={() => copy(message(created.code!))}>{copied ? "Скопировано ✓" : "Скопировать сообщение"}</button>
+          </div>
         </section>
       )}
 
@@ -67,7 +85,7 @@ export function InvitationsAdmin() {
                 <div className="meta" style={{ marginTop: 4 }}>{formatDateTimeDot(i.created_at)}</div>
               </div>
               <div className="stack" style={{ gap: 4 }}>
-                {i.status === "pending" && i.code && <button className="btn btn-sm" onClick={() => copy(i.code!)}>Копировать</button>}
+                {i.status === "pending" && i.code && <button className="btn btn-sm" onClick={() => copy(i.code!)}>Копировать код</button>}
                 {i.status === "pending" && <button className="btn btn-sm btn-danger" onClick={() => revoke(i.id)}>Отозвать</button>}
               </div>
             </li>

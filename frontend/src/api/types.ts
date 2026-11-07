@@ -99,6 +99,29 @@ export interface Booking {
   cancellation_reason?: string | null;
 }
 
+export interface BulkBookingItem {
+  chair_id: string;
+  starts_at: string;
+  ends_at: string;
+  booking_type: "full_day" | "hourly";
+}
+
+export interface BulkBookingResultItem {
+  date: string;
+  chair_id: string;
+  ok: boolean;
+  booking?: Booking | null;
+  error?: string | null;
+}
+
+export interface BulkBookingResponse {
+  created_count: number;
+  failed_count: number;
+  total_amount: number;
+  currency: string;
+  results: BulkBookingResultItem[];
+}
+
 export interface Chair {
   id: string;
   name: string;

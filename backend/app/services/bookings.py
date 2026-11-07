@@ -61,16 +61,34 @@ def _resolve_renter(db: Session, *, actor: User, renter_id: uuid.UUID | None) ->
     )
 
 
-def create_booking(
+def create_bookings_bulk(
     db: Session,
     *,
     actor: User,
-    chair_id: uuid.UUID,
-    starts_at: datetime,
-    ends_at: datetime,
-    booking_type: BookingType,
-    renter_id: uuid.UUID | None = None,
-) -> Booking:
+    items: list[dict],
+) -> tuple[list[Booking], list[dict]]:
+    """Best-effort bulk create: each item validated/created independently; returns (created, failures)."""
+    created: list[Booking] = []
+    failures: list[dict] = []
+    for item in items:
+        try:
+            b = create_booking(
+                db,
+                actor=actor,
+                chair_id=item["chair_id"],
+                starts_at=item["starts_at"],
+                ends_at=item["ends_at"],
+                booking_type=item["booking_type"],
+                renter_id=item.get("renter_id"),
+            )
+            created.append(b)
+        except HTTPException as exc:
+            detail = exc.detail if isinstance(exc.detail, str) else "Ошибка бронирования"
+            failures.append({"chair_id": item["chair_id"], "starts_at": item["starts_at"], "error": detail})
+        except Exception:
+            db.rollback()
+            failures.append({"chair_id": item["chair_id"], "starts_at": item["starts_at"], "error": "Ошибка бронирования"})
+    return created, failures
     starts_local = localize_shop(starts_at)
     ends_local = localize_shop(ends_at)
     duration_hours = int((ends_local - starts_local).total_seconds() // 3600)
