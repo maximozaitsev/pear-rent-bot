@@ -113,7 +113,11 @@ export const api = {
   cancelBooking: (id: string, reason?: string) =>
     request<Booking>(`/bookings/${id}/cancel`, { method: "POST", body: JSON.stringify({ reason }) }),
 
-  adminBookings: (params: Record<string, string | undefined> = {}) => {
+   adminCreateBooking: (payload: { chair_id: string; starts_at: string; ends_at: string; booking_type: "hourly" | "full_day"; renter_id?: string; renter_name?: string }) =>
+     request<Booking>(`/admin/bookings`, { method: "POST", body: JSON.stringify(payload) }),
+   adminCreateBookingsBulk: (payload: { items: Array<{ chair_id: string; starts_at: string; ends_at: string; booking_type: "hourly" | "full_day" }>; renter_id?: string; renter_name?: string }) =>
+     request<BulkBookingResponse>(`/admin/bookings/bulk`, { method: "POST", body: JSON.stringify(payload) }),
+   adminBookings: (params: Record<string, string | undefined> = {}) => {
     const q = new URLSearchParams();
     for (const [k, v] of Object.entries(params)) if (v) q.set(k, v);
     const qs = q.toString();

@@ -368,7 +368,7 @@ def notify_booking_created(*, booking_id: uuid.UUID, actor_id: uuid.UUID) -> Non
             renter = db.get(User, booking.renter_id)
             admins = _admin_recipients(db)
             admin_ids = [a.id for a in admins if a.id != booking.renter_id]
-            renter_id = renter.id if renter else None
+            renter_id = renter.id if renter and renter.telegram_id and renter.telegram_id > 0 else None
         finally:
             db.close()
         if renter_id is not None:

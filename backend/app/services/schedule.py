@@ -68,7 +68,7 @@ def assert_hour_boundary(dt: datetime) -> None:
 
 
 def validate_booking_window(
-    db: Session, *, starts_at: datetime, ends_at: datetime
+    db: Session, *, starts_at: datetime, ends_at: datetime, allow_past: bool = False
 ) -> tuple[date, WorkingHours]:
     starts_local = localize_shop(starts_at)
     ends_local = localize_shop(ends_at)
@@ -79,7 +79,7 @@ def validate_booking_window(
             detail="Booking must start and end on the same day",
         )
     now_local = datetime.now(shop_tz())
-    if day < now_local.date():
+    if not allow_past and day < now_local.date():
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Date is in the past"
         )

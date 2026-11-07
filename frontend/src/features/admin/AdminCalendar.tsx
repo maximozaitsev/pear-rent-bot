@@ -1,9 +1,10 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../../api/client";
-import type { Booking, ChairDay, DaySchedule } from "../../api/types";
+import type { Booking, ChairDay, DaySchedule, Renter } from "../../api/types";
 import { addDays, firstOfMonth, formatMoney, formatTime, groupByDay, isoDate, mondayOf, monthGridWeeks } from "../schedule/time";
 import { BookingCard } from "./BookingCard";
-import { Banner, DayStrip, Empty, MonthGrid, Sheet, WeekNav, dayParts, errorText, haptic, personName, todayIso, type PeriodMode } from "../../shared/ui";
+import { ChairPicker } from "../schedule/ChairPicker";
+import { Banner, DayStrip, Empty, Icon, MonthGrid, Sheet, WeekNav, dayParts, errorText, haptic, personName, todayIso, type PeriodMode } from "../../shared/ui";
 
 type DB = ChairDay["bookings"][number];
 
@@ -83,10 +84,15 @@ export function AdminCalendar({ defaultMode }: { defaultMode?: PeriodMode }) {
   const [loadedPeriod, setLoadedPeriod] = useState("");
   const [selectedDate, setSelectedDate] = useState("");
   const [selectedBooking, setSelectedBooking] = useState<{ booking: Booking; related: Booking[] } | null>(null);
+  const [renters, setRenters] = useState<Renter[]>([]);
+  const [adminPicker, setAdminPicker] = useState<{ day: DaySchedule; chair: ChairDay } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const loadingRef = useRef(false);
 
   const load = useCallback(async () => {
+    if (loadingRef.current) return;
+    loadingRef.current = true;
     setLoading(true); setError(null);
     try {
       if (mode === "week") {
@@ -109,10 +115,11 @@ export function AdminCalendar({ defaultMode }: { defaultMode?: PeriodMode }) {
         setSelectedDate((prev) => (map[prev] ? prev : (map[todayIso()] ? todayIso() : Object.keys(map).sort()[0] ?? "")));
       }
     } catch (e) { setError(errorText(e, "Ошибка загрузки")); }
-    finally { setLoading(false); }
+    finally { loadingRef.current = false; setLoading(false); }
   }, [mode, weekStart, monthAnchor]);
 
   useEffect(() => { load(); }, [load]);
+  useEffect(() => { api.adminRenters().then(setRenters).catch(() => {}); }, []);
 
   async function openBooking(id: string) {
     const daysToSearch = mode === "week" ? days : Object.values(monthDays);
@@ -225,6 +232,7 @@ export function AdminCalendar({ defaultMode }: { defaultMode?: PeriodMode }) {
                       <div className="card-head">
                         <h2>{chair.name}</h2>
                         <span className="muted small">{grouped.length ? `${grouped.length} бр.` : "свободно"}</span>
+                        <button className="icon-btn" aria-label="Забронировать" onClick={() => selectedDay && setAdminPicker({ day: selectedDay, chair })}><Icon name="plus" /></button>
                       </div>
                       <Occupancy day={selectedDay} bookings={chair.bookings} />
                       {grouped.map((g) => (
@@ -283,6 +291,19 @@ export function AdminCalendar({ defaultMode }: { defaultMode?: PeriodMode }) {
             </>
           )}
         </>
+      )}
+
+      {adminPicker && (
+        <ChairPicker
+          day={adminPicker.day}
+          chair={adminPicker.chair}
+          onClose={() => setAdminPicker(null)}
+          onBooked={async () => { setAdminPicker(null); try { setRenters(await api.adminRenters()); } catch {} await refreshAfterChange(); }}
+          onStale={async () => { await load(); }}
+          adminMode
+          allowPast
+          renters={renters}
+        />
       )}
 
       {selectedBooking && (

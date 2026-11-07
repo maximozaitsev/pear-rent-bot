@@ -52,7 +52,7 @@ function subtractIntervals(free: { starts_at: string; ends_at: string }[], busy:
 }
 
 export function ChairPicker({
-  day, chair, onClose, onBooked, onStale, editMode = false,
+  day, chair, onClose, onBooked, onStale, editMode = false, adminMode = false, renters = [], allowPast = false,
 }: {
   day: DaySchedule;
   chair: ChairDay;
@@ -60,6 +60,9 @@ export function ChairPicker({
   onBooked: () => void;
   onStale: () => void | Promise<void>;
   editMode?: boolean;
+  adminMode?: boolean;
+  renters?: { id: string; first_name: string | null; last_name: string | null; username: string | null }[];
+  allowPast?: boolean;
 }) {
   const ownedIntervals = useMemo(
     () => chair.bookings.filter((b) => b.is_mine).map((b) => ({ starts_at: b.starts_at, ends_at: b.ends_at })),
@@ -71,15 +74,20 @@ export function ChairPicker({
   );
   const hasOwnPartial = globalOwnIntervals.length > 0;
   const effectiveFree = useMemo(() => {
+    if (adminMode) return chair.free_intervals;
     if (editMode) return [...chair.free_intervals, ...ownedIntervals];
     if (!hasOwnPartial) return chair.free_intervals;
     return subtractIntervals(chair.free_intervals, globalOwnIntervals);
-  }, [chair.free_intervals, ownedIntervals, globalOwnIntervals, hasOwnPartial, editMode]);
+  }, [chair.free_intervals, ownedIntervals, globalOwnIntervals, hasOwnPartial, editMode, adminMode]);
 
-  const [mode, setMode] = useState<"full_day" | "hourly">(hasOwnPartial ? "hourly" : chair.is_free_whole_day ? "full_day" : "hourly");
+  const [mode, setMode] = useState<"full_day" | "hourly">(adminMode ? (chair.is_free_whole_day ? "full_day" : "hourly") : (hasOwnPartial ? "hourly" : chair.is_free_whole_day ? "full_day" : "hourly"));
   const [selectedHours, setSelectedHours] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [adminRenterOpen, setAdminRenterOpen] = useState(false);
+  const [adminRenterId, setAdminRenterId] = useState("");
+  const [adminRenterName, setAdminRenterName] = useState("");
+  const [adminBookingBusy, setAdminBookingBusy] = useState(false);
 
   useEffect(() => {
     if (editMode) {
@@ -131,7 +139,7 @@ export function ChairPicker({
   const hasChanges = !editMode || mode !== "hourly" || selectedHours.length !== originalSlots.length || selectedHours.some((s) => !originalSlots.includes(s));
   const groups = useMemo(() => groupHourIntervals(selectedHours), [selectedHours]);
   const price = mode === "full_day" ? 6000 : groups.reduce((sum, g) => sum + calcHourlyPrice(g.hours), 0);
-  const canSubmit = !isPast && !busy && (mode === "hourly" ? (allFree || selectedHours.length === 0) && hasChanges : canFullDay) && (!editMode || hasChanges);
+  const canSubmit = (allowPast || !isPast) && !busy && (mode === "hourly" ? (allFree || selectedHours.length === 0) && hasChanges : canFullDay) && (!editMode || hasChanges);
 
   async function submit() {
     if (isPast) { setError("Нельзя записаться на прошедший день"); return; }
@@ -197,59 +205,120 @@ export function ChairPicker({
         </span>
         <b>{price ? formatMoney(price) : "—"}</b>
       </div>
-      <button className="btn btn-primary btn-block" disabled={!canSubmit} onClick={submit}>
-        {busy ? "Создание..." : "Подтвердить бронирование"}
+      <button className="btn btn-primary btn-block" disabled={!canSubmit} onClick={() => { if (adminMode) setAdminRenterOpen(true); else submit(); }}>
+        {busy ? "Создание..." : adminMode ? "Выбрать арендатора" : "Подтвердить бронирование"}
       </button>
     </>
   ) : undefined;
 
+  async function adminCreateBooking() {
+    if (!adminMode) return;
+    if (!adminRenterId && !adminRenterName.trim()) {
+      setError("Выберите или введите арендатора");
+      return;
+    }
+    setAdminBookingBusy(true); setError(null);
+    try {
+      const renterPayload = adminRenterId ? { renter_id: adminRenterId } : { renter_name: adminRenterName.trim() };
+      if (mode === "full_day") {
+        await api.adminCreateBooking({
+          chair_id: chair.chair_id,
+          starts_at: `${day.date}T${wh.open_time!.slice(0, 5)}:00`,
+          ends_at: `${day.date}T${wh.close_time!.slice(0, 5)}:00`,
+          booking_type: "full_day",
+          ...renterPayload,
+        });
+      } else {
+        if (!selectedHours.length || !allFree) throw new Error("Выберите свободные часы");
+        const items = groups.map((g) => ({
+          chair_id: chair.chair_id,
+          starts_at: `${day.date}T${g.start}`,
+          ends_at: `${day.date}T${g.end}`,
+          booking_type: "hourly" as const,
+        }));
+        await api.adminCreateBookingsBulk({ items, ...renterPayload });
+      }
+      haptic("success");
+      setAdminRenterOpen(false);
+      onBooked();
+    } catch (e) {
+      haptic("error");
+      setError(errorText(e, "Не удалось создать бронирование"));
+      await onStale();
+    } finally {
+      setAdminBookingBusy(false);
+      setAdminRenterOpen(false);
+    }
+  }
+
   return (
-    <Sheet title={`${chair.name} · ${dayParts(day.date).long}`} onClose={onClose} footer={footer}>
-      {!wh.is_open ? (
-        <p className="muted">Барбершоп закрыт.</p>
-      ) : (
-        <>
-          <div className="segmented">
-            <button className={mode === "full_day" ? "active" : ""} disabled={!canFullDay} onClick={() => setMode("full_day")}>Весь день</button>
-            <button className={mode === "hourly" ? "active" : ""} disabled={chair.is_fully_booked} onClick={() => setMode("hourly")}>По часам</button>
+    <>
+      <Sheet title={`${chair.name} · ${dayParts(day.date).long}`} onClose={onClose} footer={footer}>
+        {!wh.is_open ? (
+          <p className="muted">Барбершоп закрыт.</p>
+        ) : (
+          <>
+            <div className="segmented">
+              <button className={mode === "full_day" ? "active" : ""} disabled={!canFullDay} onClick={() => setMode("full_day")}>Весь день</button>
+              <button className={mode === "hourly" ? "active" : ""} disabled={chair.is_fully_booked} onClick={() => setMode("hourly")}>По часам</button>
+            </div>
+            {hasOwnBooking && !canFullDay && <p className="muted small">В этот день у вас уже есть запись — бронирование на весь день недоступно.</p>}
+
+            {mode === "full_day" && (
+              <div className="stack">
+                <p>Весь рабочий день: <b>{hourRange(wh.open_time!)}–{hourRange(wh.close_time!)}</b></p>
+                <p className="muted small">Кресло будет полностью закреплено за вами на этот день.</p>
+              </div>
+            )}
+
+            {mode === "hourly" && (
+              <div className="stack">
+                <p className="muted small">Выберите часы (можно не подряд). Каждый час — отдельная запись.</p>
+                <div className="slots">
+                  {slots.map((slot) => {
+                    const start = `${day.date}T${slot}:00`;
+                    const h = Number(slot.slice(0, 2));
+                    const end = `${day.date}T${String(h + 1).padStart(2, "0")}:00`;
+                    const free = slotFree(start, end, effectiveFree);
+                    const selected = selectedSet.has(slot);
+                    return (
+                      <button key={slot} className={`slot ${free ? "" : "busy"} ${selected ? "selected" : ""}`} disabled={!free} onClick={() => toggleHour(slot)}>
+                        {slot}
+                      </button>
+                    );
+                  })}
+                </div>
+                <div className="legend">
+                  <span><i style={{ background: "color-mix(in srgb, var(--ok) 35%, transparent)" }} />свободно</span>
+                  <span><i style={{ background: "var(--soft)" }} />занято</span>
+                  <span><i style={{ background: "var(--accent)" }} />выбрано</span>
+                </div>
+                {selectedHours.length > 0 && !allFree && <Banner kind="bad">Оставьте только свободные часы.</Banner>}
+                <p className="muted small">Тариф: первый час 10 BYN, каждый следующий +5 BYN (внутри одного дня)</p>
+              </div>
+            )}
+          </>
+        )}
+      </Sheet>
+      {adminMode && adminRenterOpen && (
+        <Sheet title="Арендатор" onClose={() => setAdminRenterOpen(false)}>
+          {error && <Banner kind="bad">{error}</Banner>}
+          <div className="stack">
+            <label className="muted small">Существующий арендатор</label>
+            <select className="input" value={adminRenterId} onChange={(e) => { setAdminRenterId(e.target.value); if (e.target.value) setAdminRenterName(""); }}>
+              <option value="">— выбрать —</option>
+              {renters.map((r) => (
+                <option key={r.id} value={r.id}>{[r.first_name, r.last_name].filter(Boolean).join(" ") || r.username || r.id}</option>
+              ))}
+            </select>
+            <label className="muted small">Или новое имя</label>
+            <input className="input" value={adminRenterName} onChange={(e) => { setAdminRenterName(e.target.value); if (e.target.value) setAdminRenterId(""); }} placeholder="Имя арендатора" />
+            <button className="btn btn-primary btn-block" disabled={adminBookingBusy || (!adminRenterId && !adminRenterName.trim())} onClick={adminCreateBooking}>
+              {adminBookingBusy ? "Создание..." : "Забронировать"}
+            </button>
           </div>
-          {hasOwnBooking && !canFullDay && <p className="muted small">В этот день у вас уже есть запись — бронирование на весь день недоступно.</p>}
-
-          {mode === "full_day" && (
-            <div className="stack">
-              <p>Весь рабочий день: <b>{hourRange(wh.open_time!)}–{hourRange(wh.close_time!)}</b></p>
-              <p className="muted small">Кресло будет полностью закреплено за вами на этот день.</p>
-            </div>
-          )}
-
-          {mode === "hourly" && (
-            <div className="stack">
-              <p className="muted small">Выберите часы (можно не подряд). Каждый час — отдельная запись.</p>
-              <div className="slots">
-                {slots.map((slot) => {
-                  const start = `${day.date}T${slot}:00`;
-                  const h = Number(slot.slice(0, 2));
-                  const end = `${day.date}T${String(h + 1).padStart(2, "0")}:00`;
-                  const free = slotFree(start, end, effectiveFree);
-                  const selected = selectedSet.has(slot);
-                  return (
-                    <button key={slot} className={`slot ${free ? "" : "busy"} ${selected ? "selected" : ""}`} disabled={!free} onClick={() => toggleHour(slot)}>
-                      {slot}
-                    </button>
-                  );
-                })}
-              </div>
-              <div className="legend">
-                <span><i style={{ background: "color-mix(in srgb, var(--ok) 35%, transparent)" }} />свободно</span>
-                <span><i style={{ background: "var(--soft)" }} />занято</span>
-                <span><i style={{ background: "var(--accent)" }} />выбрано</span>
-              </div>
-              {selectedHours.length > 0 && !allFree && <Banner kind="bad">Оставьте только свободные часы.</Banner>}
-              <p className="muted small">Тариф: первый час 10 BYN, каждый следующий +5 BYN (внутри одного дня)</p>
-            </div>
-          )}
-        </>
+        </Sheet>
       )}
-    </Sheet>
+    </>
   );
 }

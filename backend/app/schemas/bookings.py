@@ -29,7 +29,8 @@ class BookingCreateRequest(BaseModel):
     ends_at: datetime
     booking_type: BookingType
     renter_id: uuid.UUID | None = None  # admin-only
-    price_amount: int | None = None  # server-calculated if omitted
+    renter_name: str | None = None  # admin-only: create a technical renter
+    price_amount: int | None = None  # server-calculated if omitted (ignored)
 
     @field_validator("starts_at", "ends_at", mode="before")
     @classmethod
@@ -59,6 +60,12 @@ class BulkBookingItemRequest(BaseModel):
 
 class BulkBookingCreateRequest(BaseModel):
     items: list[BulkBookingItemRequest] = Field(min_length=1, max_length=100)
+
+
+class AdminBulkBookingCreateRequest(BaseModel):
+    items: list[BulkBookingItemRequest] = Field(min_length=1, max_length=100)
+    renter_id: uuid.UUID | None = None
+    renter_name: str | None = None
 
 
 class RenterBriefOut(BaseModel):

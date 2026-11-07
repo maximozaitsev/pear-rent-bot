@@ -104,6 +104,7 @@ const ICONS: Record<string, ReactNode> = {
   settings: <><path d="M4 6h10M18 6h2M4 12h2M10 12h10M4 18h12M20 18h0" /><circle cx="16" cy="6" r="2" /><circle cx="8" cy="12" r="2" /><circle cx="18" cy="18" r="2" /></>,
   left: <path d="m15 18-6-6 6-6" />,
   right: <path d="m9 18 6-6-6-6" />,
+  plus: <><path d="M12 5v14M5 12h14" /></>,
   x: <path d="M18 6 6 18M6 6l12 12" />,
 };
 export function Icon({ name }: { name: keyof typeof ICONS | string }) {
@@ -142,9 +143,7 @@ export function TabBar<T extends string>({
 
 export function Sheet({ title, onClose, children, footer }: { title: string; onClose: () => void; children: ReactNode; footer?: ReactNode }) {
   useEffect(() => {
-    const prev = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    return () => { document.body.style.overflow = prev; };
+    // Keep page scrollable even if a sheet fails to unmount; backdrop still covers the viewport.
   }, []);
   return (
     <div className="backdrop" onClick={onClose}>

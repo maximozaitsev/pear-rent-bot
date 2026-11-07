@@ -9,6 +9,7 @@ from app.core.db import get_db
 from app.models import Booking, BookingStatus, PaymentStatus, User, UserRole
 from app.notifications.service import notify_booking_cancelled, notify_booking_created, notify_bulk_bookings_created
 from app.schemas.bookings import (
+    AdminBulkBookingCreateRequest,
     BookingCancelRequest,
     BookingCreateRequest,
     BookingOut,
@@ -19,6 +20,7 @@ from app.schemas.bookings import (
     RenterBriefOut,
 )
 from app.services.bookings import (
+    _create_technical_renter,
     cancel_booking,
     create_booking,
     create_bookings_bulk,
@@ -118,6 +120,10 @@ def create(
 ):
     if payload.renter_id is not None and user.role != UserRole.admin:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin access required")
+    if payload.renter_name is not None and user.role != UserRole.admin:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin access required")
+    if payload.renter_id is not None and payload.renter_name is not None:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Provide either renter_id or renter_name")
     booking = create_booking(
         db,
         actor=user,
@@ -126,6 +132,8 @@ def create(
         ends_at=payload.ends_at,
         booking_type=payload.booking_type,
         renter_id=payload.renter_id,
+        renter_name=payload.renter_name,
+        allow_past=user.role == UserRole.admin,
     )
     # Booking is committed inside create_booking; notify after commit. Never rollback on notify errors.
     background_tasks.add_task(notify_booking_created, booking_id=booking.id, actor_id=user.id)
@@ -199,9 +207,60 @@ def admin_create(
         ends_at=payload.ends_at,
         booking_type=payload.booking_type,
         renter_id=payload.renter_id,
+        renter_name=payload.renter_name,
+        allow_past=True,
     )
     background_tasks.add_task(notify_booking_created, booking_id=booking.id, actor_id=admin.id)
     return _booking_out(booking, viewer=admin)
+
+
+@router.post("/admin/bookings/bulk", response_model=BulkBookingCreateResponse, status_code=201)
+def admin_create_bulk(
+    payload: AdminBulkBookingCreateRequest,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
+    admin: User = Depends(require_admin),
+):
+    if payload.renter_id is None and not (payload.renter_name or "").strip():
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Renter is required")
+    if payload.renter_id is not None and (payload.renter_name or "").strip():
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Provide either renter_id or renter_name")
+
+    renter_id = payload.renter_id
+    if renter_id is None:
+        renter = _create_technical_renter(db, payload.renter_name or "")
+        renter_id = renter.id
+        db.commit()
+
+    items = [
+        {
+            "chair_id": it.chair_id,
+            "starts_at": it.starts_at,
+            "ends_at": it.ends_at,
+            "booking_type": it.booking_type,
+            "renter_id": renter_id,
+        }
+        for it in payload.items
+    ]
+    bookings, failures = create_bookings_bulk(db, actor=admin, items=items, allow_past=True)
+    if bookings:
+        background_tasks.add_task(notify_bulk_bookings_created, booking_ids=[b.id for b in bookings], actor_id=admin.id)
+    outs = [_booking_out(b, viewer=admin) for b in bookings]
+    results = [
+        BulkBookingResultItem(date=localize_shop(b.starts_at).date().isoformat(), chair_id=str(b.chair_id), ok=True, booking=out)
+        for b, out in zip(bookings, outs, strict=True)
+    ]
+    for f in failures:
+        results.append(BulkBookingResultItem(date="", chair_id=str(f["chair_id"]), ok=False, error=f["error"]))
+    total_amount = sum(b.price_amount for b in bookings)
+    currency = bookings[0].currency if bookings else "BYN"
+    return BulkBookingCreateResponse(
+        created_count=len(bookings),
+        failed_count=len(failures),
+        total_amount=total_amount,
+        currency=currency,
+        results=results,
+    )
 
 
 @router.patch("/admin/bookings/{booking_id}/payment", response_model=BookingOut)

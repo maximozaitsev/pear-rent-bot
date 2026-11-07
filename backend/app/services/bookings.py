@@ -61,6 +61,27 @@ def _resolve_renter(db: Session, *, actor: User, renter_id: uuid.UUID | None) ->
     )
 
 
+def _create_technical_renter(db: Session, name: str) -> User:
+    clean = name.strip()
+    if not clean:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Renter name is required")
+    for _ in range(5):
+        tg_id = -int(uuid.uuid4().int % 10**12) - 1
+        try:
+            user = User(
+                telegram_id=tg_id,
+                first_name=clean,
+                role=UserRole.renter,
+                is_active=True,
+            )
+            db.add(user)
+            db.flush()
+            return user
+        except IntegrityError:
+            db.rollback()
+    raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Could not create renter")
+
+
 def create_booking(
     db: Session,
     *,
@@ -70,7 +91,9 @@ def create_booking(
     ends_at: datetime,
     booking_type: BookingType,
     renter_id: uuid.UUID | None = None,
+    renter_name: str | None = None,
     price_amount: int | None = None,
+    allow_past: bool = False,
 ) -> Booking:
     starts_local = localize_shop(starts_at)
     ends_local = localize_shop(ends_at)
@@ -82,9 +105,11 @@ def create_booking(
         started_outer = not db.in_transaction()
         ctx = db.begin_nested() if not started_outer else db.begin()
         with ctx:
+            if renter_name is not None and renter_id is None:
+                renter_id = _create_technical_renter(db, renter_name).id
             renter = _resolve_renter(db, actor=actor, renter_id=renter_id)
             _lock_chair(db, chair_id)
-            validate_booking_window(db, starts_at=starts_at, ends_at=ends_at)
+            validate_booking_window(db, starts_at=starts_at, ends_at=ends_at, allow_past=allow_past)
 
             hours = get_working_hours(db, starts_local.date())
             if booking_type == BookingType.full_day:
@@ -139,6 +164,7 @@ def create_bookings_bulk(
     *,
     actor: User,
     items: list[dict],
+    allow_past: bool = False,
 ) -> tuple[list[Booking], list[dict]]:
     """Best-effort bulk create: each item validated/created independently; returns (created, failures)."""
     created: list[Booking] = []
@@ -154,6 +180,7 @@ def create_bookings_bulk(
                 booking_type=item["booking_type"],
                 renter_id=item.get("renter_id"),
                 price_amount=item.get("price_amount"),
+                allow_past=allow_past,
             )
             created.append(b)
         except HTTPException as exc:
