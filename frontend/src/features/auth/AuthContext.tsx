@@ -28,14 +28,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const tg = getTelegramWebApp();
         tg?.ready();
         tg?.expand();
-        const data = tg?.initData ?? "";
+        let data = tg?.initData ?? "";
+        for (let i = 0; i < 10 && !data; i++) {
+          await new Promise((r) => setTimeout(r, 100));
+          data = getTelegramWebApp()?.initData ?? "";
+        }
         if (data) setInitData(data);
 
         // If we already have a token (e.g. after dev-bypass registration in a browser),
         // verify it with /me before falling back to Telegram initData.
         if (getToken()) {
           const user = await api.me();
-          if (!user.first_name || !user.phone) {
+          if (user.role !== "admin" && (!user.first_name || !user.phone)) {
             setState({ status: "needs_profile", user, tgFirstName: tg?.initDataUnsafe?.user?.first_name ?? user.first_name });
             return;
           }
@@ -74,7 +78,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           const auth = await api.authTelegram(data);
           setToken(auth.access_token);
           const user = auth.user;
-          if (!user.first_name || !user.phone) {
+          if (user.role !== "admin" && (!user.first_name || !user.phone)) {
             setState({ status: "needs_profile", user, tgFirstName: tg?.initDataUnsafe?.user?.first_name ?? user.first_name });
             return;
           }
