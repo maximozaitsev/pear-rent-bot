@@ -1,8 +1,10 @@
+import logging
+import os, json
+from urllib.parse import parse_qs
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
-import os, json
-from urllib.parse import parse_qs
 
 from app.core.auth import create_access_token, get_current_user, sync_admin_role_from_config
 from app.core.config import settings
@@ -13,6 +15,7 @@ from app.schemas.auth import AuthResponse, CompleteRegistrationRequest, Register
 from app.services.invitations import register_renter_with_invite
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 def _user_out(user: User) -> UserOut:
@@ -56,14 +59,24 @@ def _upsert_admin_if_configured(db: Session, tg_user) -> User | None:
 
 @router.post("/telegram", response_model=AuthResponse)
 def auth_telegram(payload: TelegramAuthRequest, db: Session = Depends(get_db)) -> AuthResponse:
-    tg_user = validate_init_data(payload.init_data)
+    try:
+        tg_user = validate_init_data(payload.init_data)
+    except Exception:
+        logger.warning("auth_telegram: validate_init_data failed", exc_info=True)
+        raise
+    logger.info(
+        "auth_telegram: validated tg_id=%s username=%r admin_config=%s",
+        tg_user.id, tg_user.username, tg_user.id in set(settings.admin_telegram_id_list),
+    )
 
     admin = _upsert_admin_if_configured(db, tg_user)
     if admin is not None:
+        logger.info("auth_telegram: bootstrapped/upserted admin tg_id=%s user_id=%s", tg_user.id, admin.id)
         return AuthResponse(access_token=create_access_token(admin), user=_user_out(admin))
 
     user = db.scalar(select(User).where(User.telegram_id == tg_user.id))
     if user is None:
+        logger.info("auth_telegram: no user found, returning registration_required for tg_id=%s", tg_user.id)
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail={
@@ -80,13 +93,20 @@ def auth_telegram(payload: TelegramAuthRequest, db: Session = Depends(get_db)) -
     db.refresh(user)
 
     if not user.is_active:
+        logger.warning("auth_telegram: inactive user tg_id=%s user_id=%s", user.telegram_id, user.id)
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="User is inactive")
+    logger.info("auth_telegram: existing user login tg_id=%s user_id=%s role=%s", user.telegram_id, user.id, user.role.value)
     return AuthResponse(access_token=create_access_token(user), user=_user_out(user))
 
 
 @router.post("/register", response_model=AuthResponse, status_code=status.HTTP_201_CREATED)
 def register(payload: RegisterRequest, db: Session = Depends(get_db)) -> AuthResponse:
-    tg_user = validate_init_data(payload.init_data)
+    try:
+        tg_user = validate_init_data(payload.init_data)
+    except Exception:
+        logger.warning("register: validate_init_data failed", exc_info=True)
+        raise
+    logger.info("register: attempt tg_id=%s code_len=%s", tg_user.id, len((payload.code or "").strip()))
     if tg_user.id in set(settings.admin_telegram_id_list):
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -108,6 +128,7 @@ def register(payload: RegisterRequest, db: Session = Depends(get_db)) -> AuthRes
         first_name=tg_user.first_name,
         last_name=tg_user.last_name,
     )
+    logger.info("register: success tg_id=%s user_id=%s role=%s", user.telegram_id, user.id, user.role.value)
     return AuthResponse(access_token=create_access_token(user), user=_user_out(user))
 
 
@@ -133,6 +154,7 @@ def complete_registration(
 @router.post("/dev-bypass", response_model=AuthResponse)
 def dev_bypass(payload: TelegramAuthRequest, db: Session = Depends(get_db)) -> AuthResponse:
     """DEV ONLY (DEV_INSECURE_AUTH_BYPASS=1): local Telegram WebView/ngrok debugging."""
+    logger.info("dev-bypass: called bypass_enabled=%s", os.getenv("DEV_INSECURE_AUTH_BYPASS"))
     if os.getenv("DEV_INSECURE_AUTH_BYPASS", "").lower() not in {"1", "true", "yes"}:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Dev bypass disabled")
     tg = payload.dev_user if isinstance(payload.dev_user, dict) and payload.dev_user.get("id") else {}
@@ -143,6 +165,7 @@ def dev_bypass(payload: TelegramAuthRequest, db: Session = Depends(get_db)) -> A
         except Exception:
             tg = {}
     telegram_id = int(tg.get("id") or 0)
+    logger.info("dev-bypass: resolved tg_id=%s has_code=%s", telegram_id, bool((payload.code or "").strip()))
     if not telegram_id:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="No Telegram user in initData")
     user = db.scalar(select(User).where(User.telegram_id == telegram_id))
@@ -151,4 +174,7 @@ def dev_bypass(payload: TelegramAuthRequest, db: Session = Depends(get_db)) -> A
         if not code:
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail={"code": "registration_required", "message": "Введите код приглашения."})
         user = register_renter_with_invite(db, code=code, telegram_id=telegram_id, username=tg.get("username"), first_name=tg.get("first_name"), last_name=tg.get("last_name"))
+        logger.info("dev-bypass: registered new user via invite tg_id=%s user_id=%s", user.telegram_id, user.id)
+    else:
+        logger.info("dev-bypass: existing user tg_id=%s user_id=%s", user.telegram_id, user.id)
     return AuthResponse(access_token=create_access_token(user), user=_user_out(user))

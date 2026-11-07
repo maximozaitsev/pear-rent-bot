@@ -26,10 +26,18 @@ def validate_init_data(init_data: str) -> TelegramUser:
 
     Never trust user identity sent separately from initData.
     """
+    def _debug(msg: str, *args: object) -> None:
+        if settings.log_auth_debug:
+            logger.info("auth_debug " + msg, *args)
+
     def _reject(status_code: int, detail: str) -> None:
         logger.warning("Telegram initData rejected: %s", detail)
         raise HTTPException(status_code=status_code, detail=detail)
 
+    _debug(
+        "validate start init_data_len=%s bot_token_configured=%s max_age=%s",
+        len(init_data or ""), bool(settings.telegram_bot_token), settings.telegram_auth_max_age_seconds,
+    )
     if not init_data:
         _reject(status.HTTP_401_UNAUTHORIZED, "initData required")
     if not settings.telegram_bot_token:
@@ -41,6 +49,7 @@ def validate_init_data(init_data: str) -> TelegramUser:
     parsed = dict(parse_qsl(init_data, keep_blank_values=True))
     received_hash = parsed.pop("hash", None)
     if not received_hash:
+        _debug("missing hash keys=%s", sorted(parsed.keys()))
         _reject(status.HTTP_401_UNAUTHORIZED, "Invalid initData")
 
     data_check_string = "\n".join(f"{k}={v}" for k, v in sorted(parsed.items()))
@@ -56,12 +65,17 @@ def validate_init_data(init_data: str) -> TelegramUser:
     try:
         auth_date = int(parsed.get("auth_date", "0"))
     except ValueError:
+        _debug("bad auth_date raw=%r", parsed.get("auth_date"))
         _reject(status.HTTP_401_UNAUTHORIZED, "Invalid auth_date")
+    now = int(time.time())
+    age = now - auth_date
+    _debug("auth_date=%s now=%s age_s=%s max_age=%s", auth_date, now, age, settings.telegram_auth_max_age_seconds)
     if auth_date <= 0:
         _reject(status.HTTP_401_UNAUTHORIZED, "Invalid auth_date")
     max_age = settings.telegram_auth_max_age_seconds
-    if max_age > 0 and (int(time.time()) - auth_date) > max_age:
-        _reject(status.HTTP_401_UNAUTHORIZED, "initData expired")
+    if max_age > 0 and age > max_age:
+        logger.warning("Telegram initData expired: age_s=%s max_age=%s auth_date=%s", age, max_age, auth_date)
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="initData expired")
 
     raw_user = parsed.get("user")
     if not raw_user:
@@ -75,6 +89,7 @@ def validate_init_data(init_data: str) -> TelegramUser:
     except (KeyError, TypeError, ValueError):
         _reject(status.HTTP_401_UNAUTHORIZED, "Invalid Telegram user")
 
+    _debug("validate ok telegram_id=%s username=%r", telegram_id, payload.get("username"))
     return TelegramUser(
         id=telegram_id,
         username=payload.get("username"),

@@ -19,10 +19,12 @@ const TOKEN_KEY = "pear_rent_token";
 export class ApiError extends Error {
   status: number;
   detail: unknown;
-  constructor(status: number, detail: unknown, message?: string) {
+  requestId: string | null;
+  constructor(status: number, detail: unknown, message?: string, requestId?: string | null) {
     super(message ?? `Request failed (${status})`);
     this.status = status;
     this.detail = detail;
+    this.requestId = requestId ?? null;
   }
 }
 
@@ -35,12 +37,32 @@ export function setToken(token: string | null): void {
   else localStorage.removeItem(TOKEN_KEY);
 }
 
+function shouldLogAuthDebug(): boolean {
+  try {
+    return localStorage.getItem("pear_auth_debug") === "1" || (import.meta.env.VITE_AUTH_DEBUG as string | undefined) === "1";
+  } catch {
+    return false;
+  }
+}
+
+export function authLog(event: string, payload?: Record<string, unknown>): void {
+  const entry = { ts: new Date().toISOString(), scope: "auth", event, ...(payload ?? {}) };
+  try {
+    if (shouldLogAuthDebug()) console.info("[pear-auth]", entry);
+    else console.debug("[pear-auth]", entry);
+  } catch { /* ignore */ }
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const token = getToken();
   const headers = new Headers(init?.headers);
   if (!headers.has("Content-Type") && init?.body) headers.set("Content-Type", "application/json");
   if (token) headers.set("Authorization", `Bearer ${token}`);
-  const res = await fetch(`${API_BASE}${path}`, { ...init, headers });
+  const url = `${API_BASE}${path}`;
+  const method = (init?.method ?? "GET").toUpperCase();
+  authLog("request_start", { method, path, hasToken: !!token });
+  const res = await fetch(url, { ...init, headers });
+  const requestId = res.headers.get("x-request-id");
   const text = await res.text();
   let data: unknown = null;
   if (text) {
@@ -52,8 +74,10 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   }
   if (!res.ok) {
     const detail = (data && typeof data === "object" && "detail" in data ? (data as { detail: unknown }).detail : data) ?? res.statusText;
-    throw new ApiError(res.status, detail, typeof detail === "string" ? detail : JSON.stringify(detail));
+    authLog("request_error", { method, path, status: res.status, requestId, detail });
+    throw new ApiError(res.status, detail, typeof detail === "string" ? detail : JSON.stringify(detail), requestId);
   }
+  authLog("request_ok", { method, path, status: res.status, requestId });
   return data as T;
 }
 

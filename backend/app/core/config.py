@@ -47,6 +47,8 @@ class Settings(BaseSettings):
 
     timezone: str = "Europe/Minsk"
     telegram_auth_max_age_seconds: int = 86400
+    log_level: str = "INFO"
+    log_auth_debug: bool = False
 
     cors_origins: list[str] | str = Field(
         default_factory=lambda: ["http://localhost:5173", "http://127.0.0.1:5173"]

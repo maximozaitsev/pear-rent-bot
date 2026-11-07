@@ -1,3 +1,4 @@
+import logging
 import secrets
 from datetime import UTC, datetime
 
@@ -6,6 +7,8 @@ from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
 from app.models import Invitation, InvitationStatus, User, UserRole
+
+logger = logging.getLogger(__name__)
 
 
 def create_invitation(db: Session, *, created_by: User) -> tuple[Invitation, str]:
@@ -62,6 +65,7 @@ def register_renter_with_invite(
     If no row is updated, the code is invalid or already used.
     """
     code = code.strip()
+    logger.info("invite_register: attempt tg_id=%s code=%s", telegram_id, code)
     started_tx = not db.in_transaction()
     if started_tx:
         ctx = db.begin()
@@ -70,12 +74,21 @@ def register_renter_with_invite(
     with ctx:
         invitation = db.scalar(select(Invitation).where(Invitation.code == code))
         if invitation is None:
+            logger.warning("invite_register: code not found tg_id=%s code=%s", telegram_id, code)
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND, detail="Код не найден"
             )
+        logger.info(
+            "invite_register: invitation found tg_id=%s code=%s status=%s used_by=%s",
+            telegram_id, code, invitation.status.value, invitation.used_by,
+        )
 
         existing = db.scalar(select(User).where(User.telegram_id == telegram_id))
         if existing is not None:
+            logger.warning(
+                "invite_register: existing user conflict tg_id=%s existing_user_id=%s role=%s active=%s",
+                telegram_id, existing.id, existing.role.value, existing.is_active,
+            )
             if existing.role == UserRole.admin:
                 raise HTTPException(
                     status_code=status.HTTP_409_CONFLICT,
@@ -95,6 +108,7 @@ def register_renter_with_invite(
         )
         db.add(user)
         db.flush()
+        logger.info("invite_register: user row created tg_id=%s user_id=%s", telegram_id, user.id)
 
         result = db.execute(
             update(Invitation)
@@ -102,11 +116,17 @@ def register_renter_with_invite(
             .values(status=InvitationStatus.used, used_by=user.id, used_at=datetime.now(UTC))
         )
         if result.rowcount == 0:
+            logger.warning(
+                "invite_register: atomic claim failed (race/already used) tg_id=%s code=%s rowcount=%s",
+                telegram_id, code, result.rowcount,
+            )
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
                 detail="Код недействителен или уже использован",
             )
+        logger.info("invite_register: invitation claimed tg_id=%s user_id=%s code=%s", telegram_id, user.id, code)
     if not started_tx and db.in_transaction():
         db.commit()
     db.refresh(user)
+    logger.info("invite_register: committed tg_id=%s user_id=%s", telegram_id, user.id)
     return user

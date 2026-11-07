@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { api, getTelegramWebApp, setToken } from "../../api/client";
+import { api, authLog, getTelegramWebApp, setToken } from "../../api/client";
 import { useAuth } from "./AuthContext";
 import { Banner, errorText, haptic } from "../../shared/ui";
 
@@ -21,6 +21,7 @@ export function RegisterGate({ reason }: { reason: string }) {
       if (initData) try { initData = decodeURIComponent(initData); } catch { /* keep */ }
     }
     const clean = (override ?? code).replace(/\s/g, "");
+    authLog("register_submit", { hasInitData: !!initData, codeLen: clean.length, hasUnsafeUser: !!tg?.initDataUnsafe?.user, devOpen });
     if (!/^\d{6}$/.test(clean)) { setError("Введите 6-значный код приглашения."); return; }
     setBusy(true); setError(null);
     try {
@@ -35,10 +36,12 @@ export function RegisterGate({ reason }: { reason: string }) {
       } else {
         throw new Error("Telegram не передал данные пользователя. Откройте приложение из Telegram.");
       }
+      authLog("register_ok", { userId: auth.user.id, role: auth.user.role });
       setToken(auth.access_token);
       haptic("success");
       refresh();
     } catch (e) {
+      authLog("register_catch", { err: e instanceof Error ? e.message : String(e), status: (e as any)?.status, detail: (e as any)?.detail, requestId: (e as any)?.requestId });
       haptic("error");
       setError(errorText(e, "Не удалось зарегистрироваться"));
     } finally {
