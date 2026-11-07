@@ -111,8 +111,8 @@ export function SettingsAdmin() {
           <div key={item.weekday} className="weekrow">
             <b>{WEEKDAYS[item.weekday]}</b>
             <Switch checked={item.is_open} onChange={(v) => patchDay(idx, { is_open: v })} />
-            <input className="input" type="time" disabled={!item.is_open} value={item.open_time?.slice(0, 5) ?? ""} onChange={(e) => patchDay(idx, { open_time: toApiTime(e.target.value) })} />
-            <input className="input" type="time" disabled={!item.is_open} value={item.close_time?.slice(0, 5) ?? ""} onChange={(e) => patchDay(idx, { close_time: toApiTime(e.target.value) })} />
+            <input className="input" style={{ minWidth: 0 }} type="time" disabled={!item.is_open} value={item.open_time?.slice(0, 5) ?? ""} onChange={(e) => patchDay(idx, { open_time: toApiTime(e.target.value) })} />
+            <input className="input" style={{ minWidth: 0 }} type="time" disabled={!item.is_open} value={item.close_time?.slice(0, 5) ?? ""} onChange={(e) => patchDay(idx, { close_time: toApiTime(e.target.value) })} />
           </div>
         ))}
         <button className="btn btn-primary btn-block" onClick={saveWeekly}>Сохранить расписание</button>
@@ -120,13 +120,13 @@ export function SettingsAdmin() {
 
       <div className="section-label">Исключения дат</div>
       <section className="card">
-        <label className="field"><span>Дата</span><input className="input" type="date" value={excDate} onChange={(e) => setExcDate(e.target.value)} /></label>
+        <label className="field"><span>Дата</span><input className="input" style={{ minWidth: 0 }} type="date" value={excDate} onChange={(e) => setExcDate(e.target.value)} /></label>
         <Switch checked={excOpen} onChange={setExcOpen} label={excOpen ? "Открыто" : "Закрыто"} />
         {excOpen && (
           <div className="row">
-            <input className="input" type="time" value={excOpenTime.slice(0, 5)} onChange={(e) => setExcOpenTime(e.target.value + ":00")} />
+            <input className="input" style={{ minWidth: 0 }} type="time" value={excOpenTime.slice(0, 5)} onChange={(e) => setExcOpenTime(e.target.value + ":00")} />
             <span className="muted">–</span>
-            <input className="input" type="time" value={excCloseTime.slice(0, 5)} onChange={(e) => setExcCloseTime(e.target.value + ":00")} />
+            <input className="input" style={{ minWidth: 0 }} type="time" value={excCloseTime.slice(0, 5)} onChange={(e) => setExcCloseTime(e.target.value + ":00")} />
           </div>
         )}
         <input className="input" value={excReason} onChange={(e) => setExcReason(e.target.value)} placeholder="Причина (необязательно)" />

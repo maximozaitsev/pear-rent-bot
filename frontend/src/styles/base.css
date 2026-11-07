@@ -191,7 +191,7 @@ button.item:active:not(:disabled) { background: var(--soft); }
 .switch .track::after { content: ""; position: absolute; top: 3px; left: 3px; width: 20px; height: 20px; border-radius: 50%; background: #fff; transition: transform 0.15s; box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3); }
 .switch input:checked + .track { background: var(--accent); }
 .switch input:checked + .track::after { transform: translateX(16px); }
-.weekrow { display: grid; grid-template-columns: 34px auto 1fr 1fr; align-items: center; gap: 8px; }
+.weekrow { display: grid; grid-template-columns: 34px auto minmax(0, 1fr) minmax(0, 1fr); align-items: center; gap: 8px; }
 
 /* ---------- bottom sheet ---------- */
 .backdrop { position: fixed; inset: 0; z-index: 50; background: rgba(0, 0, 0, 0.5); display: flex; align-items: flex-end; justify-content: center; animation: fade 0.18s; }
