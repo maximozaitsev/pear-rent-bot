@@ -9,6 +9,8 @@ from app.api.health import router as health_router
 from app.api.v1 import router as v1_router
 from app.bot.runtime import start_bot_polling, stop_bot
 from app.core.config import settings
+from app.core.db import SessionLocal
+from app.services.seed import seed_initial_data
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -16,6 +18,8 @@ logger = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
+    with SessionLocal() as db:
+        seed_initial_data(db)
     bot_task: asyncio.Task[None] | None = None
     if settings.telegram_bot_token:
         bot_task = asyncio.create_task(start_bot_polling())
