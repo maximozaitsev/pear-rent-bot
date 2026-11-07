@@ -52,31 +52,48 @@ function subtractIntervals(free: { starts_at: string; ends_at: string }[], busy:
 }
 
 export function ChairPicker({
-  day, chair, onClose, onBooked, onStale,
+  day, chair, onClose, onBooked, onStale, editMode = false,
 }: {
   day: DaySchedule;
   chair: ChairDay;
   onClose: () => void;
   onBooked: () => void;
   onStale: () => void | Promise<void>;
+  editMode?: boolean;
 }) {
-  const ownIntervals = useMemo(
+  const ownedIntervals = useMemo(
+    () => chair.bookings.filter((b) => b.is_mine).map((b) => ({ starts_at: b.starts_at, ends_at: b.ends_at })),
+    [chair],
+  );
+  const globalOwnIntervals = useMemo(
     () => day.chairs.flatMap((c) => c.bookings.filter((b) => b.is_mine).map((b) => ({ starts_at: b.starts_at, ends_at: b.ends_at }))),
     [day],
   );
-  const hasOwnPartial = ownIntervals.length > 0;
+  const hasOwnPartial = globalOwnIntervals.length > 0;
   const effectiveFree = useMemo(() => {
+    if (editMode) return [...chair.free_intervals, ...ownedIntervals];
     if (!hasOwnPartial) return chair.free_intervals;
-    return subtractIntervals(chair.free_intervals, ownIntervals);
-  }, [chair.free_intervals, ownIntervals, hasOwnPartial]);
+    return subtractIntervals(chair.free_intervals, globalOwnIntervals);
+  }, [chair.free_intervals, ownedIntervals, globalOwnIntervals, hasOwnPartial, editMode]);
 
   const [mode, setMode] = useState<"full_day" | "hourly">(hasOwnPartial ? "hourly" : chair.is_free_whole_day ? "full_day" : "hourly");
   const [selectedHours, setSelectedHours] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // расписание обновилось (например, после конфликта) — сбрасываем выбор
-  useEffect(() => { setSelectedHours([]); }, [chair]);
+  useEffect(() => {
+    if (editMode) {
+      const ownedSlots: string[] = [];
+      for (const b of chair.bookings.filter((x) => x.is_mine)) {
+        const startH = Number(b.starts_at.slice(11, 13));
+        const endH = Number(b.ends_at.slice(11, 13));
+        for (let h = startH; h < endH; h++) ownedSlots.push(`${String(h).padStart(2, "0")}:00`);
+      }
+      setSelectedHours(ownedSlots);
+    } else {
+      setSelectedHours([]);
+    }
+  }, [chair, editMode]);
 
   const wh = day.working_hours;
   const slots = buildHourSlots(wh.open_time, wh.close_time);
@@ -101,14 +118,30 @@ export function ChairPicker({
     const end = `${day.date}T${String(h + 1).padStart(2, "0")}:00`;
     return slotFree(start, end, effectiveFree);
   });
+  const originalSlots = useMemo(() => {
+    if (!editMode) return [];
+    const slots: string[] = [];
+    for (const b of chair.bookings.filter((x) => x.is_mine)) {
+      const startH = Number(b.starts_at.slice(11, 13));
+      const endH = Number(b.ends_at.slice(11, 13));
+      for (let h = startH; h < endH; h++) slots.push(`${String(h).padStart(2, "0")}:00`);
+    }
+    return slots;
+  }, [chair, editMode]);
+  const hasChanges = !editMode || mode !== "hourly" || selectedHours.length !== originalSlots.length || selectedHours.some((s) => !originalSlots.includes(s));
   const groups = useMemo(() => groupHourIntervals(selectedHours), [selectedHours]);
   const price = mode === "full_day" ? 6000 : groups.reduce((sum, g) => sum + calcHourlyPrice(g.hours), 0);
-  const canSubmit = !isPast && !busy && (mode === "hourly" ? allFree : canFullDay);
+  const canSubmit = !isPast && !busy && (mode === "hourly" ? (allFree || selectedHours.length === 0) && hasChanges : canFullDay) && (!editMode || hasChanges);
 
   async function submit() {
     if (isPast) { setError("Нельзя записаться на прошедший день"); return; }
+    const oldIds = editMode ? chair.bookings.filter((b) => b.is_mine).map((b) => b.id) : [];
+    const oldSlots = editMode ? ownedIntervals.map((i) => i.starts_at.slice(11, 16)) : [];
     setBusy(true); setError(null);
     try {
+      if (editMode && oldIds.length) {
+        await Promise.all(oldIds.map((id) => api.cancelBooking(id)));
+      }
       if (mode === "full_day") {
         if (!wh.open_time || !wh.close_time) throw new Error("Барбершоп закрыт в этот день");
         await api.createBooking({
@@ -120,21 +153,32 @@ export function ChairPicker({
         haptic("success");
         onBooked();
       } else {
-        if (!selectedHours.length || !allFree) throw new Error("Выберите свободные часы");
+        if (editMode ? (selectedHours.length > 0 && !allFree) : (!selectedHours.length || !allFree)) throw new Error("Выберите свободные часы");
         const items = groups.map((g) => ({
           chair_id: chair.chair_id,
           starts_at: `${day.date}T${g.start}`,
           ends_at: `${day.date}T${g.end}`,
           booking_type: "hourly" as const,
         }));
-        const res = await api.createBookingsBulk(items);
-        if (res.created_count === 0) {
-          throw new Error(res.results[0]?.error || "Не удалось создать бронирования");
+        if (items.length) {
+          const res = await api.createBookingsBulk(items);
+          if (res.created_count === 0) throw new Error(res.results[0]?.error || "Не удалось создать бронирования");
         }
         haptic("success");
         onBooked();
       }
     } catch (e) {
+      if (editMode && oldSlots.length) {
+        try {
+          const restoreItems = groupHourIntervals(oldSlots).map((g) => ({
+            chair_id: chair.chair_id,
+            starts_at: `${day.date}T${g.start}`,
+            ends_at: `${day.date}T${g.end}`,
+            booking_type: "hourly" as const,
+          }));
+          await api.createBookingsBulk(restoreItems);
+        } catch { /* ignore restore errors */ }
+      }
       haptic("error");
       setError(`${errorText(e, "Не удалось создать бронирование")} Расписание обновлено.`);
       await onStale();
@@ -201,7 +245,7 @@ export function ChairPicker({
                 <span><i style={{ background: "var(--accent)" }} />выбрано</span>
               </div>
               {selectedHours.length > 0 && !allFree && <Banner kind="bad">Оставьте только свободные часы.</Banner>}
-              <p className="muted small">Тариф: первый час 10 BYN, каждый следующий +5 BYN (внутри одного дня). Итог подтверждает сервер.</p>
+              <p className="muted small">Тариф: первый час 10 BYN, каждый следующий +5 BYN (внутри одного дня)</p>
             </div>
           )}
         </>

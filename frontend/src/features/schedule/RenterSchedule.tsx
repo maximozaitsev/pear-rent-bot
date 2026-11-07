@@ -29,6 +29,7 @@ export function RenterSchedule({ refreshKey, defaultMode }: { refreshKey?: numbe
   const [selectedDate, setSelectedDate] = useState("");
   const [picker, setPicker] = useState<{ day: DaySchedule; chair: ChairDay } | null>(null);
   const [mineSheet, setMineSheet] = useState<{ day: DaySchedule; chair: ChairDay; bookings: DayBooking[] } | null>(null);
+  const [pickerEditMode, setPickerEditMode] = useState(false);
   const [cancelBusy, setCancelBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -75,8 +76,20 @@ export function RenterSchedule({ refreshKey, defaultMode }: { refreshKey?: numbe
       const chair = fresh.chairs.find((c) => c.chair_id === chairId);
       if (!chair) return;
       const mine = mineBookings ?? chair.bookings.filter((b) => b.is_mine);
-      if (mine.length) setMineSheet({ day: fresh, chair, bookings: mine });
-      else setPicker({ day: fresh, chair });
+      const hasFullDay = mine.some((b) => b.booking_type === "full_day");
+      if (hasFullDay) {
+        setMineSheet({ day: fresh, chair, bookings: mine });
+        setPicker(null);
+        setPickerEditMode(false);
+      } else if (mine.length > 0) {
+        setMineSheet(null);
+        setPickerEditMode(true);
+        setPicker({ day: fresh, chair });
+      } else {
+        setMineSheet(null);
+        setPickerEditMode(false);
+        setPicker({ day: fresh, chair });
+      }
     } catch (e) {
       setError(errorText(e));
     }
@@ -328,7 +341,7 @@ export function RenterSchedule({ refreshKey, defaultMode }: { refreshKey?: numbe
           <button className="btn btn-primary btn-block" disabled={pickedCount === 0 || bookingBusy} onClick={submitPicked}>
             {bookingBusy ? "Бронирование..." : "Забронировать выбранные дни"}
           </button>
-          <p className="muted small">Тариф полного дня: {formatMoney(FULL_DAY_PRICE)}. Итог подтверждает сервер.</p>
+          <p className="muted small">Тариф полного дня: {formatMoney(FULL_DAY_PRICE)}.</p>
         </section>
       )}
 
@@ -372,6 +385,7 @@ export function RenterSchedule({ refreshKey, defaultMode }: { refreshKey?: numbe
         </>
       )}
 
+
       {mineSheet && (
         <Sheet title={`${mineSheet.chair.name} · ${dayParts(mineSheet.day.date).long}`} onClose={() => setMineSheet(null)}>
           <Banner kind="ok">Часы забронированы за вами.</Banner>
@@ -398,6 +412,7 @@ export function RenterSchedule({ refreshKey, defaultMode }: { refreshKey?: numbe
           chair={picker.chair}
           onClose={() => setPicker(null)}
           onBooked={() => { setPicker(null); load(); }}
+          editMode={pickerEditMode}
           onStale={async () => { await Promise.all([load(), openChair(picker.day, picker.chair.chair_id)]); }}
         />
       )}
