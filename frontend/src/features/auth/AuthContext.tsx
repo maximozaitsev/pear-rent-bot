@@ -1,5 +1,5 @@
 import { createContext, createElement, useContext, useEffect, useState, type ReactNode } from "react";
-import { ApiError, api, authLog, getTelegramWebApp, getToken, setToken } from "../../api/client";
+import { ApiError, api, authLog, getTelegramWebApp, getToken, readInitDataFromLocation, setToken } from "../../api/client";
 import type { User } from "../../api/types";
 
 type AuthState =
@@ -16,29 +16,41 @@ export function useAuth() {
   return ctx;
 }
 
+async function collectInitData(): Promise<string> {
+  const deadline = Date.now() + 4000;
+  let last = "";
+  while (Date.now() < deadline) {
+    const tg = getTelegramWebApp();
+    const fromTg = tg?.initData ?? "";
+    const fromLoc = readInitDataFromLocation();
+    const data = fromTg || fromLoc;
+    if (data) {
+      authLog("initData_found", { source: fromTg ? "webapp" : "location", len: data.length });
+      return data;
+    }
+    await new Promise((r) => setTimeout(r, 150));
+    last = fromTg || fromLoc || last;
+  }
+  return last;
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<AuthState>({ status: "loading" });
   const [initData, setInitData] = useState("");
   const [nonce, setNonce] = useState(0);
-  const refresh = () => setNonce((n) => n + 1);
+  const refresh = () => { setState({ status: "loading" }); setNonce((n) => n + 1); };
 
   useEffect(() => {
     (async () => {
       try {
         const tg = getTelegramWebApp();
-        authLog("boot", { hasTg: !!tg, hasToken: !!getToken() });
+        authLog("boot", { hasTg: !!tg, hasToken: !!getToken(), href: window.location.href });
         tg?.ready();
         tg?.expand();
-        let data = tg?.initData ?? "";
-        for (let i = 0; i < 10 && !data; i++) {
-          await new Promise((r) => setTimeout(r, 100));
-          data = getTelegramWebApp()?.initData ?? "";
-        }
-        authLog("initData_collected", { hasData: !!data, len: data.length });
+        const data = await collectInitData();
+        authLog("initData_collected", { hasData: !!data, len: data.length, fromLoc: !tg?.initData && !!readInitDataFromLocation() });
         if (data) setInitData(data);
 
-        // If we already have a token (e.g. after dev-bypass registration in a browser),
-        // verify it with /me before falling back to Telegram initData.
         const tgUser = tg?.initDataUnsafe?.user;
         if (getToken()) {
           authLog("have_token_try_me");
@@ -56,14 +68,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
               return;
             }
           } catch (e) {
-            authLog("me_failed", { err: e instanceof Error ? e.message : String(e) });
+            authLog("me_failed", { err: e instanceof Error ? e.message : String(e), status: e instanceof ApiError ? e.status : null });
             setToken(null);
           }
         }
 
         if (!data) {
-          authLog("no_initData_anonymous");
-          setState({ status: "anonymous", reason: "Откройте приложение из Telegram (кнопка бота/меню). В браузере авторизация недоступна." });
+          authLog("no_initData_anonymous", { hasTg: !!tg, hasTokenAfterClear: !!getToken() });
+          setState({ status: "anonymous", reason: "Не удалось получить данные Telegram для входа. Нажмите «Повторить вход». Если не помогло — откройте мини-приложение через меню бота (Menu Button)." });
           return;
         }
         authLog("try_authTelegram");
@@ -77,15 +89,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
         setState({ status: "ready", user });
       } catch (e) {
-        setToken(null);
         const tg = getTelegramWebApp();
-        const data = tg?.initData ?? "";
+        const data = tg?.initData ?? readInitDataFromLocation() ?? initData;
         if (data) setInitData(data);
         authLog("authTelegram_catch", {
           status: e instanceof ApiError ? e.status : null,
           detail: e instanceof ApiError ? e.detail : (e instanceof Error ? e.message : String(e)),
           requestId: e instanceof ApiError ? e.requestId : null,
+          hasData: !!data,
         });
+        setToken(null);
         if (e instanceof ApiError && e.status === 403) {
           const detail = e.detail as { code?: string; message?: string } | string;
           const code = typeof detail === "object" ? detail.code : null;
@@ -97,7 +110,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           }
         }
         try {
-          if (!data) { setState({ status: "anonymous", reason: "Нет данных Telegram. Откройте Mini App из Telegram." }); return; }
+          if (!data) { setState({ status: "anonymous", reason: "Не удалось получить данные Telegram. Нажмите «Повторить вход» или откройте приложение через меню бота." }); return; }
           authLog("try_authTelegram_retry");
           const auth = await api.authTelegram(data);
           setToken(auth.access_token);
@@ -119,7 +132,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             const message = typeof detail === "object" ? detail.message : String(detail);
             setState({ status: "anonymous", reason: message || "Доступ выдаётся администратором." });
           } else {
-            setState({ status: "anonymous", reason: `Не удалось войти: ${e2 instanceof Error ? e2.message : "ошибка"}` });
+            setState({ status: "anonymous", reason: `Не удалось войти: ${e2 instanceof Error ? e2.message : "ошибка"}. Нажмите «Повторить вход».` });
           }
         }
       }

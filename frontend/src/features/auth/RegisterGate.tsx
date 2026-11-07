@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { api, authLog, getTelegramWebApp, setToken } from "../../api/client";
+import { api, authLog, getTelegramWebApp, readInitDataFromLocation, setToken } from "../../api/client";
 import { useAuth } from "./AuthContext";
 import { AuthDebugPanel } from "../../shared/AuthDebugPanel";
 import { Banner, errorText, haptic } from "../../shared/ui";
@@ -14,15 +14,9 @@ export function RegisterGate({ reason }: { reason: string }) {
 
   async function submit(override?: string) {
     const tg = getTelegramWebApp();
-    let initData = ctxInitData || tg?.initData || "";
-    if (!initData) {
-      const hash = new URLSearchParams(window.location.hash.slice(1));
-      const qs = new URLSearchParams(window.location.search);
-      initData = hash.get("tgWebAppData") || qs.get("tgWebAppData") || "";
-      if (initData) try { initData = decodeURIComponent(initData); } catch { /* keep */ }
-    }
+    let initData = ctxInitData || tg?.initData || readInitDataFromLocation() || "";
     const clean = (override ?? code).replace(/\s/g, "");
-    authLog("register_submit", { hasInitData: !!initData, codeLen: clean.length, hasUnsafeUser: !!tg?.initDataUnsafe?.user, devOpen });
+    authLog("register_submit", { hasInitData: !!initData, initDataLen: initData.length, codeLen: clean.length, hasUnsafeUser: !!tg?.initDataUnsafe?.user, devOpen, usedCtx: !!ctxInitData });
     if (!/^\d{6}$/.test(clean)) { setError("Введите 6-значный код приглашения."); return; }
     setBusy(true); setError(null);
     try {
@@ -35,7 +29,7 @@ export function RegisterGate({ reason }: { reason: string }) {
       } else if (devTgId.trim() && /^\d+$/.test(devTgId.trim())) {
         auth = await api.devBypass({ init_data: "dev", code: clean, dev_user: { id: Number(devTgId.trim()) } });
       } else {
-        throw new Error("Telegram не передал данные пользователя. Откройте приложение из Telegram.");
+        throw new Error("Не удалось получить данные Telegram. Нажмите «Повторить вход» ниже или откройте мини-приложение через меню бота.");
       }
       authLog("register_ok", { userId: auth.user.id, role: auth.user.role });
       setToken(auth.access_token);
@@ -74,6 +68,7 @@ export function RegisterGate({ reason }: { reason: string }) {
         </details>
         {error && <Banner kind="bad">{error}</Banner>}
         <button className="btn btn-primary btn-block" disabled={busy} onClick={() => submit()}>{busy ? "Регистрация..." : "Зарегистрироваться"}</button>
+        <button className="btn btn-ghost btn-block" disabled={busy} onClick={() => { authLog("manual_refresh_click"); refresh(); }} style={{ marginTop: 8 }}>Повторить вход</button>
         <AuthDebugPanel />
       </section>
     </main>

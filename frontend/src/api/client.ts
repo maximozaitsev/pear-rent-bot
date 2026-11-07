@@ -82,14 +82,24 @@ export function setAuthDebugEnabled(on: boolean): void {
 export function authLog(event: string, payload?: Record<string, unknown>): void {
   const entry: AuthLogEntry = { ts: new Date().toISOString(), event, ...(payload ? { payload } : {}) };
   try {
-    if (isAuthDebugEnabled()) {
-      authLogBuf = [...authLogBuf, entry].slice(-AUTH_LOG_MAX);
-      console.info("[pear-auth]", entry);
-      notifyAuthLog();
-    } else {
-      console.debug("[pear-auth]", entry);
-    }
+    // Always buffer (capped) so logs survive "enable debug after boot" flows in Mini App.
+    authLogBuf = [...authLogBuf, entry].slice(-AUTH_LOG_MAX);
+    notifyAuthLog();
+    if (isAuthDebugEnabled()) console.info("[pear-auth]", entry);
+    else console.debug("[pear-auth]", entry);
   } catch { /* ignore */ }
+}
+
+export function readInitDataFromLocation(): string {
+  try {
+    const hash = new URLSearchParams((window.location.hash || "").replace(/^#/, ""));
+    const qs = new URLSearchParams(window.location.search || "");
+    let v = hash.get("tgWebAppData") || qs.get("tgWebAppData") || "";
+    if (v) try { v = decodeURIComponent(v); } catch { /* keep */ }
+    return v;
+  } catch {
+    return "";
+  }
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
