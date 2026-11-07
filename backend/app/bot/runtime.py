@@ -2,7 +2,7 @@ import logging
 
 from aiogram import Bot, Dispatcher, Router
 from aiogram.filters import CommandStart
-from aiogram.types import MenuButtonWebApp, Message, WebAppInfo
+from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, MenuButtonWebApp, Message, WebAppInfo
 
 from app.core.config import settings
 
@@ -21,15 +21,27 @@ def _mini_app_url() -> str | None:
     return url
 
 
+def _open_markup(url: str) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="Открыть приложение", web_app=WebAppInfo(url=url))]
+        ]
+    )
+
+
 @router.message(CommandStart())
 async def handle_start(message: Message) -> None:
-    await message.answer(
+    mini_app_url = _mini_app_url()
+    text = (
         "🍐 <b>Pear Rent</b>\n\n"
         "Аренда кресел в барбершопе — быстро и удобно.\n\n"
-        "• Уже есть доступ? Нажмите <b>«Открыть»</b> в меню бота ниже.\n"
-        "• Нет доступа? Попросите администратора код приглашения и введите его в приложении.",
-        parse_mode="HTML",
+        "Уже есть доступ — откройте приложение.\n"
+        "Если доступа нет — попросите администратора код приглашения и введите его в приложении."
     )
+    if mini_app_url:
+        await message.answer(text, reply_markup=_open_markup(mini_app_url), parse_mode="HTML")
+    else:
+        await message.answer(text, parse_mode="HTML")
 
 
 def get_dispatcher() -> Dispatcher:

@@ -30,7 +30,7 @@ export function SettingsAdmin() {
 
   async function load() {
     try {
-      const [c, w, e] = await Promise.all([api.chairs(true), api.adminWeeklySchedule(), api.adminExceptions()]);
+      const [c, w, e] = await Promise.all([api.chairs(), api.adminWeeklySchedule(), api.adminExceptions()]);
       setChairs(c); setWeekly(w.sort((a, b) => a.weekday - b.weekday)); setExceptions(e);
     } catch (e) { setError(errorText(e)); }
   }
@@ -92,15 +92,13 @@ export function SettingsAdmin() {
             <li key={c.id} className="item-plain" style={{ flexWrap: "wrap" }}>
               <div>
                 <div style={{ fontWeight: 600 }}>{c.name}</div>
-                <span className={`chip ${c.archived_at ? "mute" : c.is_active ? "ok" : "warn"}`}>{c.archived_at ? "архив" : c.is_active ? "активно" : "отключено"}</span>
+                <span className={`chip ${c.is_active ? "ok" : "warn"}`}>{c.is_active ? "активно" : "отключено"}</span>
               </div>
-              {!c.archived_at && (
-                <div className="row wrap">
-                  <button className="btn btn-sm" onClick={() => renameChair(c)}>Имя</button>
-                  <button className="btn btn-sm" onClick={() => toggleChair(c)}>{c.is_active ? "Отключить" : "Включить"}</button>
-                  <button className="btn btn-sm btn-danger" onClick={() => archiveChair(c)}>Архив</button>
-                </div>
-              )}
+              <div className="row wrap">
+                <button className="btn btn-sm" onClick={() => renameChair(c)}>Имя</button>
+                <button className="btn btn-sm" onClick={() => toggleChair(c)}>{c.is_active ? "Отключить" : "Включить"}</button>
+                <button className="btn btn-sm btn-danger" onClick={() => archiveChair(c)}>Архив</button>
+              </div>
             </li>
           ))}
         </ul>
@@ -151,7 +149,6 @@ export function SettingsAdmin() {
         <div className="row between"><span>Весь день</span><b>60 BYN</b></div>
         <div className="row between"><span>1-й час</span><b>10 BYN</b></div>
         <div className="row between"><span>Каждый следующий час</span><b>+5 BYN</b></div>
-        <p className="muted small">Редактирование тарифов не входит в MVP.</p>
       </section>
     </>
   );
