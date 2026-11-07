@@ -1,4 +1,5 @@
 import asyncio
+import html
 import logging
 import uuid
 from datetime import UTC, datetime
@@ -29,12 +30,21 @@ EVENT_BOOKING_CREATED_BULK_ADMIN = "booking_created_bulk_admin"
 def _money(amount_kopeks: int, currency: str) -> str:
     rub = amount_kopeks // 100
     kop = amount_kopeks % 100
-    return f"{rub}.{kop:02d} {currency}" if kop else f"{rub} {currency}"
+    cur = "₽" if currency.upper() in {"RUB", "RUR"} else "BYN" if currency.upper() == "BYN" else currency
+    return f"{rub}.{kop:02d} {cur}" if kop else f"{rub} {cur}"
+
+
+def _fmt_date(dt: datetime) -> str:
+    return localize_shop(dt).strftime("%d.%m.%Y")
+
+
+def _fmt_time(dt: datetime) -> str:
+    return localize_shop(dt).strftime("%H:%M")
 
 
 def _fmt_dt(dt: datetime) -> str:
     local = localize_shop(dt)
-    return local.strftime("%Y-%m-%d %H:%M")
+    return f"{local.strftime('%d.%m.%Y')} {local.strftime('%H:%M')}"
 
 
 def _renter_label(user: User) -> str:
@@ -44,6 +54,10 @@ def _renter_label(user: User) -> str:
     if user.username:
         return f"@{user.username}"
     return f"telegram:{user.telegram_id}"
+
+
+def _esc(value: object) -> str:
+    return html.escape(str(value), quote=False)
 
 
 def _booking_details(db: Session, booking: Booking) -> tuple[str, str]:
@@ -57,37 +71,39 @@ def _booking_details(db: Session, booking: Booking) -> tuple[str, str]:
 def _build_messages(
     *, event_type: str, booking: Booking, chair_name: str, renter_name: str, actor: User | None
 ) -> str:
-    period = f"{_fmt_dt(booking.starts_at)}–{localize_shop(booking.ends_at).strftime('%H:%M')}"
+    period = f"{_fmt_dt(booking.starts_at)} – {_fmt_time(booking.ends_at)}"
     amount = _money(booking.price_amount, booking.currency)
+    chair = _esc(chair_name)
+    renter = _esc(renter_name)
     if event_type == EVENT_BOOKING_CREATED_RENTER:
         return (
-            "Бронирование создано.\n"
-            f"Кресло: {chair_name}\n"
-            f"Время: {period}\n"
-            f"Сумма: {amount}"
+            "✅ <b>Бронирование подтверждено</b>\n\n"
+            f"💺 <b>Кресло:</b> {chair}\n"
+            f"🗓 <b>Время:</b> {period}\n"
+            f"💳 <b>Сумма:</b> <b>{amount}</b>"
         )
     if event_type == EVENT_BOOKING_CREATED_ADMIN:
         return (
-            "Новая бронь арендатора.\n"
-            f"Арендатор: {renter_name}\n"
-            f"Кресло: {chair_name}\n"
-            f"Время: {period}\n"
-            f"Сумма: {amount}"
+            "🆕 <b>Новая бронь</b>\n\n"
+            f"👤 <b>Арендатор:</b> {renter}\n"
+            f"💺 <b>Кресло:</b> {chair}\n"
+            f"🗓 <b>Время:</b> {period}\n"
+            f"💳 <b>Сумма:</b> <b>{amount}</b>"
         )
     if event_type == EVENT_BOOKING_CANCELLED_BY_RENTER_ADMIN:
         return (
-            "Арендатор отменил бронь.\n"
-            f"Арендатор: {renter_name}\n"
-            f"Кресло: {chair_name}\n"
-            f"Время: {period}"
+            "❌ <b>Бронь отменена арендатором</b>\n\n"
+            f"👤 <b>Арендатор:</b> {renter}\n"
+            f"💺 <b>Кресло:</b> {chair}\n"
+            f"🗓 <b>Время:</b> {period}"
         )
     if event_type == EVENT_BOOKING_CANCELLED_BY_ADMIN_RENTER:
         return (
-            "Администратор отменил бронирование.\n"
-            f"Кресло: {chair_name}\n"
-            f"Время: {period}"
+            "❌ <b>Бронирование отменено администратором</b>\n\n"
+            f"💺 <b>Кресло:</b> {chair}\n"
+            f"🗓 <b>Время:</b> {period}"
         )
-    return f"Уведомление: {event_type}"
+    return f"ℹ️ Уведомление: {_esc(event_type)}"
 
 
 def _admin_recipients(db: Session) -> list[User]:
@@ -135,7 +151,7 @@ async def _send_with_retries(bot, telegram_id: int, text: str) -> tuple[bool, st
     last_error: str | None = None
     for attempt in range(1, MAX_ATTEMPTS + 1):
         try:
-            await bot.send_message(chat_id=telegram_id, text=text)
+            await bot.send_message(chat_id=telegram_id, text=text, parse_mode="HTML")
             return True, None
         except Exception as exc:  # noqa: BLE001 - delivery must not crash booking flow
             last_error = f"{type(exc).__name__}: {exc}"[:1000]
@@ -231,7 +247,7 @@ def _build_bulk_created_messages(
 ) -> str:
     by_day: dict[str, list[Booking]] = {}
     for b in sorted(bookings, key=lambda x: x.starts_at):
-        day = localize_shop(b.starts_at).strftime("%Y-%m-%d")
+        day = _fmt_date(b.starts_at)
         by_day.setdefault(day, []).append(b)
     lines: list[str] = []
     total = 0
@@ -239,20 +255,25 @@ def _build_bulk_created_messages(
     for day, items in by_day.items():
         day_total = sum(i.price_amount for i in items)
         total += day_total
-        chairs = ", ".join(sorted({chair_names.get(i.chair_id, str(i.chair_id)) for i in items}))
+        chairs = ", ".join(sorted({_esc(chair_names.get(i.chair_id, str(i.chair_id))) for i in items}))
         count = len(items)
         label = "день" if count == 1 else "дней/слотов"
-        lines.append(f"- {day}: {chairs}, {count} {label}, {_money(day_total, currency)}")
+        lines.append(f"• <b>{day}</b> — {chairs} · {count} {label} · <b>{_money(day_total, currency)}</b>")
     summary = "\n".join(lines)
     total_s = _money(total, currency)
     if recipient == "renter":
-        return f"Бронирования подтверждены.\nКоличество: {len(bookings)}\n{summary}\nИтого: {total_s}"
+        return (
+            "✅ <b>Бронирования подтверждены</b>\n\n"
+            f"📦 <b>Количество:</b> {len(bookings)}\n"
+            f"{summary}\n\n"
+            f"💳 <b>Итого к оплате:</b> <b>{total_s}</b>"
+        )
     return (
-        "Новые бронирования (массовый выбор).\n"
-        f"Арендатор: {renter_name}\n"
-        f"Количество: {len(bookings)}\n"
-        f"{summary}\n"
-        f"Итого: {total_s}"
+        "🆕 <b>Новые бронирования</b> <i>(массовый выбор)</i>\n\n"
+        f"👤 <b>Арендатор:</b> {_esc(renter_name)}\n"
+        f"📦 <b>Количество:</b> {len(bookings)}\n"
+        f"{summary}\n\n"
+        f"💳 <b>Итого:</b> <b>{total_s}</b>"
     )
 
 
