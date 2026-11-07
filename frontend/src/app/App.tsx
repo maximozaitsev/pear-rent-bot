@@ -23,29 +23,34 @@ function relDay(iso: string): { label: string; tone: "accent" | "mute" } {
 }
 
 function NearestBooking({ refreshKey }: { refreshKey: number }) {
-  const [booking, setBooking] = useState<Booking | null | undefined>(undefined);
+  const [dayBookings, setDayBookings] = useState<Booking[] | null | undefined>(undefined);
   useEffect(() => {
     let alive = true;
     api
       .myBookings()
       .then((items) => {
-        const sorted = [...items].sort((a, b) =>
-          a.starts_at.localeCompare(b.starts_at),
-        );
-        if (alive) setBooking(sorted[0] ?? null);
+        const byDay: Map<string, Booking[]> = new Map();
+        for (const b of items) {
+          const day = b.starts_at.slice(0, 10);
+          const arr = byDay.get(day) ?? [];
+          arr.push(b);
+          byDay.set(day, arr);
+        }
+        const days = Array.from(byDay.entries()).sort((a, b) => a[0].localeCompare(b[0]));
+        if (alive) setDayBookings(days.length ? days[0][1] : null);
       })
       .catch(() => {
-        if (alive) setBooking(null);
+        if (alive) setDayBookings(null);
       });
     return () => {
       alive = false;
     };
   }, [refreshKey]);
 
-  if (booking === undefined)
+  if (dayBookings === undefined)
     return <div className="skeleton" style={{ height: 84 }} />;
 
-  if (!booking) {
+  if (!dayBookings || dayBookings.length === 0) {
     return (
       <section className="next-card is-empty">
         <div className="grow">
@@ -56,9 +61,14 @@ function NearestBooking({ refreshKey }: { refreshKey: number }) {
     );
   }
 
-  const date = booking.starts_at.slice(0, 10);
+  const sorted = [...dayBookings].sort((a, b) => a.starts_at.localeCompare(b.starts_at));
+  const first = sorted[0];
+  const date = first.starts_at.slice(0, 10);
   const p = dayParts(date);
   const rel = relDay(date);
+  const intervals = sorted.map((b) => `${formatTime(b.starts_at)}–${formatTime(b.ends_at)}`).join(", ");
+  const hours = sorted.reduce((s, b) => s + (b.duration_hours ?? 1), 0);
+  const price = sorted.reduce((s, b) => s + (b.price_amount ?? 0), 0);
   return (
     <section className="next-card">
       <div className="date-badge">
@@ -67,11 +77,9 @@ function NearestBooking({ refreshKey }: { refreshKey: number }) {
       </div>
       <div className="grow">
         <div className="next-label">Ближайшая бронь</div>
-        <div className="next-time">
-          {formatTime(booking.starts_at)}–{formatTime(booking.ends_at)}
-        </div>
+        <div className="next-time">{intervals}</div>
         <div className="meta">
-          {p.long} · {formatMoney(booking.price_amount, booking.currency)}
+          {p.long} · {hours} ч · {formatMoney(price, first.currency)}
         </div>
       </div>
       <span className={`chip ${rel.tone}`}>{rel.label}</span>

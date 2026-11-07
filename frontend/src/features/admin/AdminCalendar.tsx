@@ -12,6 +12,51 @@ function toHours(t: string): number {
   return Number(s.slice(0, 2)) + Number(s.slice(3, 5)) / 60;
 }
 
+interface BookingGroup {
+  start: string;
+  end: string;
+  hours: number;
+  price: number;
+  renter: { name: string; username: string | null };
+  payment_status: string;
+  booking_type: string;
+  ids: string[];
+  intervals: string;
+}
+
+function groupBookings(bookings: DB[]): BookingGroup[] {
+  const byDay: Map<string, DB[]> = new Map();
+  for (const b of bookings) {
+    const day = b.starts_at.slice(0, 10);
+    const arr = byDay.get(day) ?? [];
+    arr.push(b);
+    byDay.set(day, arr);
+  }
+  const groups: BookingGroup[] = [];
+  for (const [day, items] of byDay.entries()) {
+    const sorted = [...items].sort((a, b) => a.starts_at.localeCompare(b.starts_at));
+    const renterName = personName(sorted[0].renter, "Занято");
+    const paymentStatus = sorted[0].payment_status ?? "unpaid";
+    const price = sorted.reduce((s, b) => s + (b.price_amount ?? 0), 0);
+    const start = formatTime(sorted[0].starts_at);
+    const end = formatTime(sorted[sorted.length - 1].ends_at);
+    const hours = sorted.reduce((s, b) => s + (b.duration_hours ?? 1), 0);
+    const intervals = sorted.map((b) => `${formatTime(b.starts_at)}–${formatTime(b.ends_at)}`).join(", ");
+    groups.push({
+      start,
+      end,
+      hours,
+      price,
+      renter: { name: renterName, username: sorted[0].renter?.username ?? null },
+      payment_status: paymentStatus,
+      booking_type: sorted[0].booking_type,
+      ids: sorted.map((b) => b.id),
+      intervals,
+    });
+  }
+  return groups.sort((a, b) => a.start.localeCompare(b.start));
+}
+
 function Occupancy({ day, bookings }: { day: DaySchedule; bookings: DB[] }) {
   const o = day.working_hours.open_time ? Number(day.working_hours.open_time.slice(0, 2)) : 9;
   const c = day.working_hours.close_time ? Number(day.working_hours.close_time.slice(0, 2)) : 22;
@@ -35,7 +80,7 @@ export function AdminCalendar({ defaultMode }: { defaultMode?: PeriodMode }) {
   const [monthDays, setMonthDays] = useState<Record<string, DaySchedule>>({});
   const [loadedPeriod, setLoadedPeriod] = useState("");
   const [selectedDate, setSelectedDate] = useState("");
-  const [selectedBooking, setSelectedBooking] = useState<Booking | null>(null);
+  const [selectedBooking, setSelectedBooking] = useState<{ booking: Booking; related: Booking[] } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
@@ -43,7 +88,6 @@ export function AdminCalendar({ defaultMode }: { defaultMode?: PeriodMode }) {
     setLoading(true); setError(null);
     try {
       if (mode === "week") {
-        setDays([]);
         const week = await api.scheduleWeekly(isoDate(weekStart));
         setDays(week.days);
         setLoadedPeriod(`w:${isoDate(weekStart)}`);
@@ -51,7 +95,6 @@ export function AdminCalendar({ defaultMode }: { defaultMode?: PeriodMode }) {
           week.days.some((d) => d.date === prev) ? prev : week.days.find((d) => d.date === todayIso())?.date ?? week.days[0]?.date ?? "",
         );
       } else {
-        setMonthDays({});
         const weeks = monthGridWeeks(monthAnchor);
         const from = weeks[0][0].date;
         const to = weeks[weeks.length - 1][6].date;
@@ -73,13 +116,17 @@ export function AdminCalendar({ defaultMode }: { defaultMode?: PeriodMode }) {
     try {
       const all = await api.adminBookings({});
       const found = all.find((b) => b.id === id);
-      if (found) setSelectedBooking(found);
+      if (!found) return;
+      const date = found.starts_at.slice(0, 10);
+      const day = mode === "week" ? (days.find((d) => d.date === date)) : (monthDays[date]);
+      const chair = day?.chairs.find((c) => c.chair_id === found.chair_id);
+      const related = chair?.bookings.filter((b) => b.id !== id && b.renter?.id === found.renter?.id) ?? [];
+      setSelectedBooking({ booking: found, related: related as unknown as Booking[] });
     } catch (e) { setError(errorText(e)); }
   }
 
   async function refreshAfterChange() {
     await load();
-    if (selectedBooking) await openBooking(selectedBooking.id).catch(() => setSelectedBooking(null));
   }
 
   const activeDays = mode === "week" ? days : Object.values(monthDays).sort((a, b) => a.date.localeCompare(b.date));
@@ -125,7 +172,7 @@ export function AdminCalendar({ defaultMode }: { defaultMode?: PeriodMode }) {
       {error && <Banner kind="bad" onRetry={load}>{error}</Banner>}
       {(() => {
         const currentPeriod = mode === "week" ? `w:${isoDate(weekStart)}` : `m:${monthAnchor.getUTCFullYear()}-${monthAnchor.getUTCMonth()}`;
-        const statsReady = !loading && loadedPeriod === currentPeriod;
+        const statsReady = loadedPeriod === currentPeriod;
         return !statsReady ? (
           <div className="skeleton" style={{ height: 62 }} aria-hidden="true" />
         ) : (
@@ -162,18 +209,18 @@ export function AdminCalendar({ defaultMode }: { defaultMode?: PeriodMode }) {
                   <section key={chair.chair_id} className="card">
                     <div className="card-head">
                       <h2>{chair.name}</h2>
-                      <span className="muted small">{chair.bookings.length ? `${chair.bookings.length} бр.` : "свободно"}</span>
+                      <span className="muted small">{groupBookings(chair.bookings).length ? `${groupBookings(chair.bookings).length} бр.` : "свободно"}</span>
                     </div>
                     <Occupancy day={selectedDay} bookings={chair.bookings} />
-                    {chair.bookings.map((b) => (
-                      <button key={b.id} className="item-plain" onClick={() => { haptic(); openBooking(b.id); }}>
-                        <div>
-                          <div style={{ fontWeight: 600 }}>{b.booking_type === "full_day" ? "Весь день" : `${formatTime(b.starts_at)}–${formatTime(b.ends_at)}`} · {personName(b.renter, "Занято")}</div>
-                          {!!b.price_amount && <div className="muted small">{formatMoney(b.price_amount, b.currency)}</div>}
-                        </div>
-                        <span className={`chip ${b.payment_status === "paid" ? "ok" : "warn"}`}>{b.payment_status === "paid" ? "оплачено" : "не оплачено"}</span>
-                      </button>
-                    ))}
+                    {groupBookings(chair.bookings).map((g) => (
+                      <button key={g.ids.join(",")} className="item-plain" onClick={() => { haptic(); openBooking(g.ids[0]); }}>
+                          <div>
+                            <div style={{ fontWeight: 600 }}>{g.booking_type === "full_day" ? "Весь день" : g.intervals} · {g.renter.name}</div>
+                            {!!g.price && <div className="muted small">{formatMoney(g.price, chair.bookings[0]?.currency ?? "BYN")}</div>}
+                          </div>
+                          <span className={`chip ${g.payment_status === "paid" ? "ok" : "warn"}`}>{g.payment_status === "paid" ? "оплачено" : "не оплачено"}</span>
+                        </button>
+                      ))}
                     <p className="muted small">Свободно: {chair.free_intervals.map((f) => `${formatTime(f.starts_at)}–${formatTime(f.ends_at)}`).join(", ") || "нет"}</p>
                   </section>
                 ))
@@ -224,7 +271,7 @@ export function AdminCalendar({ defaultMode }: { defaultMode?: PeriodMode }) {
 
       {selectedBooking && (
         <Sheet title="Бронь" onClose={() => setSelectedBooking(null)}>
-          <BookingCard booking={selectedBooking} onChanged={refreshAfterChange} />
+          <BookingCard booking={selectedBooking.booking} related={selectedBooking.related} onChanged={refreshAfterChange} onGroupChange={(g) => setSelectedBooking(g)} />
         </Sheet>
       )}
     </>

@@ -245,33 +245,34 @@ def _dispatch_events(
 def _build_bulk_created_messages(
     *, recipient: str, bookings: list[Booking], chair_names: dict[uuid.UUID, str], renter_name: str
 ) -> str:
-    by_day: dict[str, list[Booking]] = {}
-    for b in sorted(bookings, key=lambda x: x.starts_at):
-        day = _fmt_date(b.starts_at)
-        by_day.setdefault(day, []).append(b)
+    by_day_chair: dict[tuple[str, uuid.UUID], list[Booking]] = {}
+    for b in sorted(bookings, key=lambda x: (x.starts_at, x.id)):
+        key = (_fmt_date(b.starts_at), b.chair_id)
+        by_day_chair.setdefault(key, []).append(b)
     lines: list[str] = []
     total = 0
     currency = bookings[0].currency if bookings else "BYN"
-    for day, items in by_day.items():
+    for (day, _chair_id), items in by_day_chair.items():
         day_total = sum(i.price_amount for i in items)
         total += day_total
         chairs = ", ".join(sorted({_esc(chair_names.get(i.chair_id, str(i.chair_id))) for i in items}))
-        count = len(items)
-        label = "день" if count == 1 else "дней/слотов"
-        lines.append(f"• <b>{day}</b> — {chairs} · {count} {label} · <b>{_money(day_total, currency)}</b>")
+        intervals = ", ".join(
+            f"{_fmt_time(i.starts_at)}-{_fmt_time(i.ends_at)}" for i in sorted(items, key=lambda x: x.starts_at)
+        )
+        lines.append(f"• <b>{day}</b> — {chairs} · {intervals} · <b>{_money(day_total, currency)}</b>")
     summary = "\n".join(lines)
     total_s = _money(total, currency)
     if recipient == "renter":
         return (
             "✅ <b>Бронирования подтверждены</b>\n\n"
-            f"📦 <b>Количество:</b> {len(bookings)}\n"
+            f"📦 <b>Количество:</b> {len(by_day_chair)}\n"
             f"{summary}\n\n"
             f"💳 <b>Итого к оплате:</b> <b>{total_s}</b>"
         )
     return (
         "🆕 <b>Новые бронирования</b> <i>(массовый выбор)</i>\n\n"
         f"👤 <b>Арендатор:</b> {_esc(renter_name)}\n"
-        f"📦 <b>Количество:</b> {len(bookings)}\n"
+        f"📦 <b>Количество:</b> {len(by_day_chair)}\n"
         f"{summary}\n\n"
         f"💳 <b>Итого:</b> <b>{total_s}</b>"
     )

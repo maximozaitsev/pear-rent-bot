@@ -2,19 +2,31 @@
 import { useState } from "react";
 import { api } from "../../api/client";
 import type { Booking } from "../../api/types";
-import { formatDateDot, formatDateTimeDot, formatMoney, formatTime } from "../schedule/time";
+import { formatMoney, formatTime } from "../schedule/time";
 import { Banner, dayParts, errorText, haptic, personName } from "../../shared/ui";
 
-export function BookingCard({ booking, onChanged }: { booking: Booking; onChanged: () => void }) {
+export function BookingCard({ booking, related, onChanged, onGroupChange }: { booking: Booking; related: Booking[]; onChanged: () => void; onGroupChange?: (g: { booking: Booking; related: Booking[] }) => void }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const paid = booking.payment_status === "paid";
-  const active = booking.status === "active";
 
-  async function togglePayment() {
+  const allIds = [...new Set([booking.id, ...related.map((b) => b.id)])];
+  const allBookings = [booking, ...related.filter((b) => b.id !== booking.id)];
+  const allPaid = allBookings.every((b) => b.payment_status === "paid");
+  const allActive = allBookings.every((b) => b.status === "active");
+  const totalPrice = allBookings.reduce((s, b) => s + (b.price_amount ?? 0), 0);
+  const intervals = allBookings
+    .sort((a, b) => a.starts_at.localeCompare(b.starts_at))
+    .map((b) => `${formatTime(b.starts_at)}–${formatTime(b.ends_at)}`)
+    .join(", ");
+  const hours = allBookings.reduce((s, b) => s + (b.duration_hours ?? 1), 0);
+  const first = allBookings[0];
+
+  async function setPayment(targetPaid: boolean) {
     setBusy(true); setError(null);
     try {
-      await api.adminSetPayment(booking.id, paid ? "unpaid" : "paid");
+      await Promise.all(allIds.map((id) => api.adminSetPayment(id, targetPaid ? "paid" : "unpaid")));
+      const next = { booking: { ...booking, payment_status: targetPaid ? "paid" : "unpaid" }, related: allBookings.map((b) => ({ ...b, payment_status: targetPaid ? "paid" : "unpaid" })) };
+      onGroupChange?.(next);
       haptic("success");
       onChanged();
     } catch (e) { haptic("error"); setError(errorText(e)); }
@@ -22,10 +34,15 @@ export function BookingCard({ booking, onChanged }: { booking: Booking; onChange
   }
 
   async function cancel() {
-    if (!confirm("Отменить бронирование?")) return;
+    if (!confirm("Отменить все часы этого дня?")) return;
     setBusy(true); setError(null);
-    try { await api.cancelBooking(booking.id, "Отменено администратором"); haptic("success"); onChanged(); }
-    catch (e) { haptic("error"); setError(errorText(e)); }
+    try {
+      await Promise.all(allIds.map((id) => api.cancelBooking(id)));
+      const next = { booking: { ...booking, status: "cancelled" }, related: allBookings.map((b) => ({ ...b, status: "cancelled" })) };
+      onGroupChange?.(next);
+      haptic("success");
+      onChanged();
+    } catch (e) { haptic("error"); setError(errorText(e)); }
     finally { setBusy(false); }
   }
 
@@ -33,24 +50,23 @@ export function BookingCard({ booking, onChanged }: { booking: Booking; onChange
     <>
       <div className="row between">
         <div>
-          <h2>{personName(booking.renter)}</h2>
-          {booking.renter?.username && <div className="muted small">@{booking.renter.username}</div>}
+          <h2>{personName(first.renter)}</h2>
+          {first.renter?.username && <div className="muted small">@{first.renter.username}</div>}
         </div>
-        <span className={`chip ${active ? "ok" : "mute"}`}>{active ? "активна" : booking.status === "cancelled" ? "отменена" : booking.status}</span>
+        <span className={`chip ${allActive ? "ok" : "mute"}`}>{allActive ? "активно" : "отменено"}</span>
       </div>
 
       <dl className="kv" style={{ margin: 0 }}>
-        <dt>Дата</dt><dd>{dayParts(booking.starts_at.slice(0, 10)).long} ({formatDateDot(booking.starts_at)})</dd>
-        <dt>Время</dt><dd>{formatTime(booking.starts_at)}–{formatTime(booking.ends_at)} · {booking.booking_type === "full_day" ? "весь день" : `${booking.duration_hours} ч`}</dd>
-        <dt>Стоимость</dt><dd>{formatMoney(booking.price_amount, booking.currency)}</dd>
-        <dt>Оплата</dt><dd><span className={`chip ${paid ? "ok" : "warn"}`}>{paid ? "Оплачено" : "Не оплачено"}</span></dd>
-        {booking.cancelled_at && <><dt>Отмена</dt><dd>{formatDateTimeDot(booking.cancelled_at)}{booking.cancellation_reason ? ` · ${booking.cancellation_reason}` : ""}</dd></>}
+        <dt>Дата</dt><dd>{dayParts(first.starts_at.slice(0, 10)).long} ({first.starts_at.slice(0, 10)})</dd>
+        <dt>Время</dt><dd>{intervals} · {hours} ч</dd>
+        <dt>Стоимость</dt><dd>{formatMoney(totalPrice, first.currency)}</dd>
+        <dt>Оплата</dt><dd><span className={`chip ${allPaid ? "ok" : "warn"}`}>{allPaid ? "Оплачено" : "Не оплачено"}</span></dd>
       </dl>
 
       {error && <Banner kind="bad">{error}</Banner>}
       <div className="stack">
-        <button className={`btn btn-block ${paid ? "" : "btn-primary"}`} disabled={busy} onClick={togglePayment}>{paid ? "Снять оплату" : "Отметить оплаченной"}</button>
-        {active && <button className="btn btn-danger btn-block" disabled={busy} onClick={cancel}>Отменить бронь</button>}
+        <button className={`btn btn-block ${allPaid ? "" : "btn-primary"}`} disabled={busy} onClick={() => setPayment(!allPaid)}>{allPaid ? "Снять оплату" : "Отметить оплаченной"}</button>
+        {allActive && <button className="btn btn-danger btn-block" disabled={busy} onClick={cancel}>Отменить день</button>}
       </div>
     </>
   );

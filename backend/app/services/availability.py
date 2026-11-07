@@ -107,6 +107,9 @@ def day_schedule(db: Session, day: date, *, viewer: User) -> dict:
                 item["status"] = b.status.value
             if b.renter_id == viewer.id:
                 item["is_mine"] = True
+                item["price_amount"] = b.price_amount
+                item["currency"] = b.currency
+                item["payment_status"] = b.payment_status.value
             bookings_payload.append(item)
 
         fully_booked = hours.is_open and len(free) == 0 and len(busy_bookings) > 0

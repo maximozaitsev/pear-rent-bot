@@ -70,10 +70,12 @@ def create_booking(
     ends_at: datetime,
     booking_type: BookingType,
     renter_id: uuid.UUID | None = None,
+    price_amount: int | None = None,
 ) -> Booking:
     starts_local = localize_shop(starts_at)
     ends_local = localize_shop(ends_at)
-    duration_hours = int((ends_local - starts_local).total_seconds() // 3600)
+    span_seconds = (ends_local - starts_local).total_seconds()
+    duration_hours = int(span_seconds // 3600)
 
     # Server-side validation and transactional protection against double booking.
     try:
@@ -101,6 +103,9 @@ def create_booking(
 
             _assert_no_overlap(db, chair_id=chair_id, starts_at=starts_at, ends_at=ends_at)
 
+            if price_amount is None:
+                price_amount = calculate_price(booking_type, duration_hours)
+
             booking = Booking(
                 chair_id=chair_id,
                 renter_id=renter.id,
@@ -108,7 +113,7 @@ def create_booking(
                 ends_at=ends_at,
                 booking_type=booking_type,
                 duration_hours=duration_hours,
-                price_amount=calculate_price(booking_type, duration_hours),
+                price_amount=price_amount,
                 currency="BYN",
                 payment_status=PaymentStatus.unpaid,
                 status=BookingStatus.active,
@@ -148,6 +153,7 @@ def create_bookings_bulk(
                 ends_at=item["ends_at"],
                 booking_type=item["booking_type"],
                 renter_id=item.get("renter_id"),
+                price_amount=item.get("price_amount"),
             )
             created.append(b)
         except HTTPException as exc:

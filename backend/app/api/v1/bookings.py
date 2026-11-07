@@ -81,6 +81,7 @@ def create_bulk(
             "ends_at": it.ends_at,
             "booking_type": it.booking_type,
             "renter_id": user.id,
+            "price_amount": it.price_amount,
         }
         for it in payload.items
     ]

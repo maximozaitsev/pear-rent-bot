@@ -9,10 +9,52 @@ function hourRange(iso: string): string {
   return iso.includes("T") ? iso.slice(11, 16) : iso.slice(0, 5);
 }
 
-function slotCovers(startLocal: string, endLocal: string, free: { starts_at: string; ends_at: string }[]): boolean {
+function slotFree(startLocal: string, endLocal: string, free: { starts_at: string; ends_at: string }[]): boolean {
   const s = startLocal.slice(11, 16);
   const e = endLocal.slice(11, 16);
   return free.some((f) => s >= hourRange(f.starts_at) && e <= hourRange(f.ends_at));
+}
+
+function formatHourIntervals(hours: string[]): string {
+  if (hours.length === 0) return "";
+  const sorted = [...hours].sort((a, b) => a.localeCompare(b));
+  const groups: string[][] = [];
+  for (const h of sorted) {
+    const last = groups[groups.length - 1];
+    if (last && Number(h.slice(0, 2)) === Number(last[last.length - 1].slice(0, 2)) + 1) {
+      last.push(h);
+    } else {
+      groups.push([h]);
+    }
+  }
+  return groups
+    .map((g) => {
+      const start = g[0];
+      const endH = Number(g[g.length - 1].slice(0, 2)) + 1;
+      return `${start.slice(0, 5)}-${String(endH).padStart(2, "0")}:00`;
+    })
+    .join(", ");
+}
+
+interface HourGroup { start: string; end: string; hours: number; slots: string[] }
+
+function groupHourIntervals(hours: string[]): HourGroup[] {
+  if (hours.length === 0) return [];
+  const sorted = [...hours].sort((a, b) => a.localeCompare(b));
+  const groups: HourGroup[] = [];
+  let cur: string[] = [sorted[0]];
+  for (let i = 1; i < sorted.length; i++) {
+    const prev = sorted[i - 1];
+    const h = sorted[i];
+    if (Number(h.slice(0, 2)) === Number(prev.slice(0, 2)) + 1) {
+      cur.push(h);
+    } else {
+      groups.push({ start: cur[0], end: `${String(Number(cur[cur.length - 1].slice(0, 2)) + 1).padStart(2, "0")}:00`, hours: cur.length, slots: [...cur] });
+      cur = [h];
+    }
+  }
+  groups.push({ start: cur[0], end: `${String(Number(cur[cur.length - 1].slice(0, 2)) + 1).padStart(2, "0")}:00`, hours: cur.length, slots: [...cur] });
+  return groups;
 }
 
 function subtractIntervals(free: { starts_at: string; ends_at: string }[], busy: { starts_at: string; ends_at: string }[]): { starts_at: string; ends_at: string }[] {
@@ -50,37 +92,39 @@ export function ChairPicker({
   }, [chair.free_intervals, ownIntervals, hasOwnPartial]);
 
   const [mode, setMode] = useState<"full_day" | "hourly">(hasOwnPartial ? "hourly" : chair.is_free_whole_day ? "full_day" : "hourly");
-  const [startHour, setStartHour] = useState<string | null>(null);
-  const [endHour, setEndHour] = useState<string | null>(null);
+  const [selectedHours, setSelectedHours] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   // расписание обновилось (например, после конфликта) — сбрасываем выбор
-  useEffect(() => { setStartHour(null); setEndHour(null); }, [chair]);
+  useEffect(() => { setSelectedHours([]); }, [chair]);
 
   const wh = day.working_hours;
   const slots = buildHourSlots(wh.open_time, wh.close_time);
+  const selectedSet = new Set(selectedHours);
 
-  function selectHour(slot: string) {
+  function toggleHour(slot: string) {
     haptic();
     setError(null);
-    if (!startHour || (startHour && endHour)) { setStartHour(slot); setEndHour(null); return; }
-    const [sh] = startHour.split(":").map(Number);
-    const [h] = slot.split(":").map(Number);
-    if (h < sh) { setStartHour(slot); setEndHour(null); return; }
-    setEndHour(`${String(h + 1).padStart(2, "0")}:00`);
+    const start = `${day.date}T${slot}:00`;
+    const h = Number(slot.slice(0, 2));
+    const end = `${day.date}T${String(h + 1).padStart(2, "0")}:00`;
+    if (!slotFree(start, end, effectiveFree)) return;
+    setSelectedHours((prev) => (prev.includes(slot) ? prev.filter((x) => x !== slot) : [...prev, slot]));
   }
-
-  const hourlyHours = startHour && endHour ? Math.max(0, Number(endHour.slice(0, 2)) - Number(startHour.slice(0, 2))) : 0;
-  const hourlyStart = startHour ? `${day.date}T${startHour}:00` : null;
-  const hourlyEnd = endHour ? `${day.date}T${endHour}:00` : null;
-  const hourlyValid = !!hourlyStart && !!hourlyEnd && hourlyHours >= 1 && slotCovers(hourlyStart, hourlyEnd, effectiveFree);
 
   const isPast = day.date < todayIso();
   const hasOwnBooking = day.chairs.some((c) => c.bookings.some((b) => b.is_mine));
   const canFullDay = !!chair.is_free_whole_day && !hasOwnBooking;
-  const price = mode === "full_day" ? 6000 : hourlyHours > 0 ? calcHourlyPrice(hourlyHours) : 0;
-  const canSubmit = !isPast && !busy && (mode === "hourly" ? hourlyValid : canFullDay);
+  const allFree = selectedHours.length > 0 && selectedHours.every((slot) => {
+    const start = `${day.date}T${slot}:00`;
+    const h = Number(slot.slice(0, 2));
+    const end = `${day.date}T${String(h + 1).padStart(2, "0")}:00`;
+    return slotFree(start, end, effectiveFree);
+  });
+  const groups = useMemo(() => groupHourIntervals(selectedHours), [selectedHours]);
+  const price = mode === "full_day" ? 6000 : calcHourlyPrice(selectedHours.length);
+  const canSubmit = !isPast && !busy && (mode === "hourly" ? allFree : canFullDay);
 
   async function submit() {
     if (isPast) { setError("Нельзя записаться на прошедший день"); return; }
@@ -95,11 +139,27 @@ export function ChairPicker({
           booking_type: "full_day",
         });
       } else {
-        if (!hourlyValid || !hourlyStart || !hourlyEnd) throw new Error("Выберите свободный непрерывный интервал");
-        await api.createBooking({ chair_id: chair.chair_id, starts_at: hourlyStart, ends_at: hourlyEnd, booking_type: "hourly" });
+        if (!selectedHours.length || !allFree) throw new Error("Выберите свободные часы");
+        const totalPrice = calcHourlyPrice(selectedHours.length);
+        const items = groups.map((g, idx) => {
+          const share = idx === groups.length - 1
+            ? totalPrice - groups.slice(0, -1).reduce((s, x) => s + Math.round(totalPrice * x.hours / selectedHours.length), 0)
+            : Math.round(totalPrice * g.hours / selectedHours.length);
+          return {
+            chair_id: chair.chair_id,
+            starts_at: `${day.date}T${g.start}`,
+            ends_at: `${day.date}T${g.end}`,
+            booking_type: "hourly" as const,
+            price_amount: share,
+          };
+        });
+        const res = await api.createBookingsBulk(items);
+        if (res.created_count === 0) {
+          throw new Error(res.results[0]?.error || "Не удалось создать бронирования");
+        }
+        haptic("success");
+        onBooked();
       }
-      haptic("success");
-      onBooked();
     } catch (e) {
       haptic("error");
       setError(`${errorText(e, "Не удалось создать бронирование")} Расписание обновлено.`);
@@ -115,7 +175,7 @@ export function ChairPicker({
       {error && <Banner kind="bad">{error}</Banner>}
       <div className="price-line">
         <span className="muted">
-          {mode === "full_day" ? "Весь день" : startHour && endHour ? `${startHour}–${endHour} · ${hourlyHours} ч` : startHour ? "Выберите последний час" : "Выберите время"}
+          {mode === "full_day" ? "Весь день" : selectedHours.length ? `${formatHourIntervals(selectedHours)} · ${selectedHours.length} ч` : "Выберите часы"}
         </span>
         <b>{price ? formatMoney(price) : "—"}</b>
       </div>
@@ -146,16 +206,16 @@ export function ChairPicker({
 
           {mode === "hourly" && (
             <div className="stack">
-              <p className="muted small">Нажмите на первый час, затем на последний — выберется интервал.</p>
+              <p className="muted small">Выберите часы (можно не подряд). Каждый час — отдельная запись.</p>
               <div className="slots">
                 {slots.map((slot) => {
                   const start = `${day.date}T${slot}:00`;
                   const h = Number(slot.slice(0, 2));
                   const end = `${day.date}T${String(h + 1).padStart(2, "0")}:00`;
-                  const free = slotCovers(start, end, effectiveFree);
-                  const selected = startHour && ((endHour && slot >= startHour && slot < endHour) || (!endHour && slot === startHour));
+                  const free = slotFree(start, end, effectiveFree);
+                  const selected = selectedSet.has(slot);
                   return (
-                    <button key={slot} className={`slot ${free ? "" : "busy"} ${selected ? "selected" : ""}`} disabled={!free} onClick={() => selectHour(slot)}>
+                    <button key={slot} className={`slot ${free ? "" : "busy"} ${selected ? "selected" : ""}`} disabled={!free} onClick={() => toggleHour(slot)}>
                       {slot}
                     </button>
                   );
@@ -166,8 +226,8 @@ export function ChairPicker({
                 <span><i style={{ background: "var(--soft)" }} />занято</span>
                 <span><i style={{ background: "var(--accent)" }} />выбрано</span>
               </div>
-              {startHour && endHour && !hourlyValid && <Banner kind="bad">Интервал должен быть непрерывным и свободным.</Banner>}
-              <p className="muted small">Тариф: 1-й час 10 BYN, каждый следующий +5 BYN. Итог подтверждает сервер.</p>
+              {selectedHours.length > 0 && !allFree && <Banner kind="bad">Оставьте только свободные часы.</Banner>}
+              <p className="muted small">Тариф: первый час 10 BYN, каждый следующий +5 BYN (внутри одного дня). Итог подтверждает сервер.</p>
             </div>
           )}
         </>

@@ -82,11 +82,14 @@ export function RenterSchedule({ refreshKey, defaultMode }: { refreshKey?: numbe
     }
   }
 
-  async function cancelMine(id: string) {
-    if (!confirm("Отменить бронь?")) return;
-    setCancelBusy(id); setError(null);
+  async function cancelMineDay(date: string) {
+    if (!confirm("Отменить все часы этого дня?")) return;
+    setCancelBusy(date); setError(null);
     try {
-      await api.cancelBooking(id);
+      const day = daysByDate[date];
+      if (!day) return;
+      const ids = day.chairs.flatMap((c) => c.bookings.filter((b) => b.is_mine).map((b) => b.id));
+      await Promise.all(ids.map((id) => api.cancelBooking(id)));
       haptic("success");
       setMineSheet(null);
       await load();
@@ -373,17 +376,18 @@ export function RenterSchedule({ refreshKey, defaultMode }: { refreshKey?: numbe
         <Sheet title={`${mineSheet.chair.name} · ${dayParts(mineSheet.day.date).long}`} onClose={() => setMineSheet(null)}>
           <Banner kind="ok">Часы забронированы за вами.</Banner>
           <ul className="list">
-            {mineSheet.bookings.map((b) => (
-              <li key={b.id} className="item" style={{ cursor: "default" }}>
-                <div className="grow">
-                  <div className="title">{formatTime(b.starts_at)}–{formatTime(b.ends_at)}</div>
-                  <div className="meta">{b.booking_type === "full_day" ? "Весь день" : `${b.duration_hours} ч`}</div>
+            <li key={mineSheet.day.date} className="item" style={{ cursor: "default" }}>
+              <div className="grow">
+                <div className="title">{mineSheet.bookings.map((b) => `${formatTime(b.starts_at)}–${formatTime(b.ends_at)}`).join(", ")}</div>
+                <div className="meta">
+                  {mineSheet.bookings[0].booking_type === "full_day" ? "Весь день" : `${mineSheet.bookings.reduce((s, b) => s + (b.duration_hours ?? 1), 0)} ч`} ·
+                  {formatMoney(mineSheet.bookings.reduce((s, b) => s + (b.price_amount ?? 0), 0), mineSheet.bookings[0].currency)}
                 </div>
-                <button className="btn btn-sm btn-danger" disabled={cancelBusy === b.id} onClick={() => cancelMine(b.id)}>
-                  {cancelBusy === b.id ? "..." : "Отменить бронь"}
-                </button>
-              </li>
-            ))}
+              </div>
+              <button className="btn btn-sm btn-danger" disabled={cancelBusy === mineSheet.day.date} onClick={() => cancelMineDay(mineSheet.day.date)}>
+                {cancelBusy === mineSheet.day.date ? "..." : "Отменить день"}
+              </button>
+            </li>
           </ul>
         </Sheet>
       )}
