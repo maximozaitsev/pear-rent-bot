@@ -37,9 +37,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
         // If we already have a token (e.g. after dev-bypass registration in a browser),
         // verify it with /me before falling back to Telegram initData.
+        const tgUser = tg?.initDataUnsafe?.user;
         if (getToken()) {
           const user = await api.me();
-          if (user.role !== "admin" && (!user.first_name || !user.phone)) {
+          if (tgUser && user.telegram_id !== tgUser.id) {
+            setToken(null);
+          } else if (user.role !== "admin" && (!user.first_name || !user.phone)) {
             setState({ status: "needs_profile", user, tgFirstName: tg?.initDataUnsafe?.user?.first_name ?? user.first_name });
             return;
           }
