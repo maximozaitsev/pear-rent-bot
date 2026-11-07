@@ -265,7 +265,7 @@ def _build_bulk_created_messages(
     if recipient == "renter":
         return (
             "✅ <b>Бронирования подтверждены</b>\n\n"
-            f"📦 <b>Количество:</b> {len(by_day_chair)}\n"
+            f"📦 <b>Количество:</b> {len(bookings)}\n"
             f"{summary}\n\n"
             f"💳 <b>Итого к оплате:</b> <b>{total_s}</b>"
         )

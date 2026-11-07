@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
 from app.core.auth import get_current_user, require_admin
@@ -69,6 +69,7 @@ def _booking_out(booking: Booking, *, viewer: User) -> BookingOut:
 @router.post("/bookings/bulk", response_model=BulkBookingCreateResponse, status_code=201)
 def create_bulk(
     payload: BulkBookingCreateRequest,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
@@ -81,13 +82,12 @@ def create_bulk(
             "ends_at": it.ends_at,
             "booking_type": it.booking_type,
             "renter_id": user.id,
-            "price_amount": it.price_amount,
         }
         for it in payload.items
     ]
     bookings, failures = create_bookings_bulk(db, actor=user, items=items)
     if bookings:
-        notify_bulk_bookings_created(booking_ids=[b.id for b in bookings], actor_id=user.id)
+        background_tasks.add_task(notify_bulk_bookings_created, booking_ids=[b.id for b in bookings], actor_id=user.id)
     outs = [_booking_out(b, viewer=user) for b in bookings]
     results = [
         BulkBookingResultItem(date=localize_shop(b.starts_at).date().isoformat(), chair_id=str(b.chair_id), ok=True, booking=out)
@@ -112,6 +112,7 @@ def create_bulk(
 @router.post("/bookings", response_model=BookingOut, status_code=201)
 def create(
     payload: BookingCreateRequest,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
@@ -127,7 +128,7 @@ def create(
         renter_id=payload.renter_id,
     )
     # Booking is committed inside create_booking; notify after commit. Never rollback on notify errors.
-    notify_booking_created(booking_id=booking.id, actor_id=user.id)
+    background_tasks.add_task(notify_booking_created, booking_id=booking.id, actor_id=user.id)
     return _booking_out(booking, viewer=user)
 
 
@@ -149,13 +150,14 @@ def get_one(
 @router.post("/bookings/{booking_id}/cancel", response_model=BookingOut)
 def cancel(
     booking_id: uuid.UUID,
+    background_tasks: BackgroundTasks,
     payload: BookingCancelRequest | None = None,
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
     reason = payload.reason if payload else None
     booking = cancel_booking(db, actor=user, booking_id=booking_id, reason=reason)
-    notify_booking_cancelled(booking_id=booking.id, actor_id=user.id)
+    background_tasks.add_task(notify_booking_cancelled, booking_id=booking.id, actor_id=user.id)
     return _booking_out(booking, viewer=user)
 
 
@@ -185,6 +187,7 @@ def admin_list(
 @router.post("/admin/bookings", response_model=BookingOut, status_code=201)
 def admin_create(
     payload: BookingCreateRequest,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     admin: User = Depends(require_admin),
 ):
@@ -197,7 +200,7 @@ def admin_create(
         booking_type=payload.booking_type,
         renter_id=payload.renter_id,
     )
-    notify_booking_created(booking_id=booking.id, actor_id=admin.id)
+    background_tasks.add_task(notify_booking_created, booking_id=booking.id, actor_id=admin.id)
     return _booking_out(booking, viewer=admin)
 
 

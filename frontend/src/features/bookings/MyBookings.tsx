@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { api } from "../../api/client";
 import type { Booking } from "../../api/types";
-import { addMonths, firstOfMonth, formatMoney, formatTime, monthLabelRu } from "../schedule/time";
+import { addMonths, firstOfMonth, formatMoney, formatTime, groupByDay, monthLabelRu } from "../schedule/time";
 import { Banner, Empty, Icon, dayParts, errorText, haptic } from "../../shared/ui";
 
 interface DayGroup {
@@ -33,24 +33,15 @@ export function MyBookings({ onChanged }: { onChanged?: () => void }) {
   const monthItems = useMemo(() => (items ?? []).filter((b) => b.starts_at.slice(0, 7) === monthKey), [items, monthKey]);
 
   const groups = useMemo(() => {
-    const byDay: Map<string, Booking[]> = new Map();
-    for (const b of monthItems) {
-      const day = b.starts_at.slice(0, 10);
-      const arr = byDay.get(day) ?? [];
-      arr.push(b);
-      byDay.set(day, arr);
-    }
-    const groups: DayGroup[] = [];
-    for (const [date, bookings] of byDay.entries()) {
-      const sorted = [...bookings].sort((a, b) => a.starts_at.localeCompare(b.starts_at));
+    return groupByDay(monthItems).map((dayGroup) => {
+      const sorted = dayGroup.bookings;
       const intervals = sorted.map((b) => `${formatTime(b.starts_at)}–${formatTime(b.ends_at)}`).join(", ");
       const start = formatTime(sorted[0].starts_at);
       const end = formatTime(sorted[sorted.length - 1].ends_at);
       const hours = sorted.reduce((s, b) => s + (b.duration_hours ?? 1), 0);
       const price = sorted.reduce((s, b) => s + (b.price_amount ?? 0), 0);
-      groups.push({ date, bookings: sorted, start, end, hours, price, intervals, ids: sorted.map((b) => b.id) });
-    }
-    return groups.sort((a, b) => a.date.localeCompare(b.date));
+      return { date: dayGroup.date, bookings: sorted, start, end, hours, price, intervals, ids: sorted.map((b) => b.id) };
+    });
   }, [monthItems]);
 
   const stats = useMemo(() => {
@@ -62,21 +53,7 @@ export function MyBookings({ onChanged }: { onChanged?: () => void }) {
     return { workDays: days.size, toPay, paid };
   }, [monthItems]);
 
-  async function cancel(id: string) {
-    if (!confirm("Отменить бронирование?")) return;
-    setBusyId(id);
-    try {
-      await api.cancelBooking(id);
-      haptic("success");
-      await load();
-      onChanged?.();
-    } catch (e) {
-      haptic("error");
-      setError(errorText(e, "Не удалось отменить"));
-    } finally { setBusyId(null); }
-  }
-
-  async function cancelDay(date: string, ids: string[]) {
+  async function cancelDay(ids: string[]) {
     if (!confirm("Отменить все часы этого дня?")) return;
     setBusyId(ids[0]);
     try {
@@ -116,7 +93,7 @@ export function MyBookings({ onChanged }: { onChanged?: () => void }) {
                 <div className="title">{g.intervals}</div>
                 <div className="meta">{g.bookings[0].booking_type === "full_day" ? "Весь день" : `${g.hours} ч`} · {formatMoney(g.price, g.bookings[0].currency)}</div>
               </div>
-              <button className="btn btn-sm btn-danger" disabled={busy} onClick={() => cancelDay(g.date, g.ids)}>
+              <button className="btn btn-sm btn-danger" disabled={busy} onClick={() => cancelDay(g.ids)}>
                 {busy ? "..." : "Отменить день"}
               </button>
             </li>

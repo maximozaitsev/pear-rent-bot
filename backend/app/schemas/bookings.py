@@ -50,7 +50,6 @@ class BulkBookingItemRequest(BaseModel):
     starts_at: datetime
     ends_at: datetime
     booking_type: BookingType
-    price_amount: int | None = None  # server-calculated if omitted
 
     @field_validator("starts_at", "ends_at", mode="before")
     @classmethod

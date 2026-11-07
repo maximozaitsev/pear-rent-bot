@@ -85,6 +85,23 @@ export function calcHourlyPrice(hours: number): number {
   return 1000 + 500 * (hours - 1);
 }
 
+export interface DayGroup<T> {
+  date: string;
+  bookings: T[];
+}
+
+export function groupByDay<T extends { starts_at: string }>(items: T[]): DayGroup<T>[] {
+  const byDay: Map<string, T[]> = new Map();
+  for (const b of items) {
+    const day = b.starts_at.slice(0, 10);
+    const arr = byDay.get(day) ?? [];
+    arr.push(b);
+    byDay.set(day, arr);
+  }
+  return Array.from(byDay.entries())
+    .map(([date, bookings]) => ({ date, bookings: [...bookings].sort((a, b) => a.starts_at.localeCompare(b.starts_at)) }))
+    .sort((a, b) => a.date.localeCompare(b.date));
+}
 export function buildHourSlots(openTime: string | null, closeTime: string | null): string[] {
   if (!openTime || !closeTime) return [];
   const [oh] = openTime.split(":").map(Number);

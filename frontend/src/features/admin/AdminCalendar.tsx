@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { api } from "../../api/client";
 import type { Booking, ChairDay, DaySchedule } from "../../api/types";
-import { addDays, firstOfMonth, formatMoney, formatTime, isoDate, mondayOf, monthGridWeeks } from "../schedule/time";
+import { addDays, firstOfMonth, formatMoney, formatTime, groupByDay, isoDate, mondayOf, monthGridWeeks } from "../schedule/time";
 import { BookingCard } from "./BookingCard";
 import { Banner, DayStrip, Empty, MonthGrid, Sheet, WeekNav, dayParts, errorText, haptic, personName, todayIso, type PeriodMode } from "../../shared/ui";
 
@@ -25,34 +25,36 @@ interface BookingGroup {
 }
 
 function groupBookings(bookings: DB[]): BookingGroup[] {
-  const byDay: Map<string, DB[]> = new Map();
-  for (const b of bookings) {
-    const day = b.starts_at.slice(0, 10);
-    const arr = byDay.get(day) ?? [];
-    arr.push(b);
-    byDay.set(day, arr);
-  }
   const groups: BookingGroup[] = [];
-  for (const [day, items] of byDay.entries()) {
-    const sorted = [...items].sort((a, b) => a.starts_at.localeCompare(b.starts_at));
-    const renterName = personName(sorted[0].renter, "Занято");
-    const paymentStatus = sorted[0].payment_status ?? "unpaid";
-    const price = sorted.reduce((s, b) => s + (b.price_amount ?? 0), 0);
-    const start = formatTime(sorted[0].starts_at);
-    const end = formatTime(sorted[sorted.length - 1].ends_at);
-    const hours = sorted.reduce((s, b) => s + (b.duration_hours ?? 1), 0);
-    const intervals = sorted.map((b) => `${formatTime(b.starts_at)}–${formatTime(b.ends_at)}`).join(", ");
-    groups.push({
-      start,
-      end,
-      hours,
-      price,
-      renter: { name: renterName, username: sorted[0].renter?.username ?? null },
-      payment_status: paymentStatus,
-      booking_type: sorted[0].booking_type,
-      ids: sorted.map((b) => b.id),
-      intervals,
-    });
+  for (const dayGroup of groupByDay(bookings)) {
+    const byRenter: Map<string, DB[]> = new Map();
+    for (const b of dayGroup.bookings) {
+      const renterId = b.renter?.id ?? "unknown";
+      const arr = byRenter.get(renterId) ?? [];
+      arr.push(b);
+      byRenter.set(renterId, arr);
+    }
+    for (const items of byRenter.values()) {
+      const sorted = [...items].sort((a, b) => a.starts_at.localeCompare(b.starts_at));
+      const renterName = personName(sorted[0].renter, "Занято");
+      const paymentStatus = sorted.every((b) => b.payment_status === "paid") ? "paid" : "unpaid";
+      const price = sorted.reduce((s, b) => s + (b.price_amount ?? 0), 0);
+      const start = formatTime(sorted[0].starts_at);
+      const end = formatTime(sorted[sorted.length - 1].ends_at);
+      const hours = sorted.reduce((s, b) => s + (b.duration_hours ?? 1), 0);
+      const intervals = sorted.map((b) => `${formatTime(b.starts_at)}–${formatTime(b.ends_at)}`).join(", ");
+      groups.push({
+        start,
+        end,
+        hours,
+        price,
+        renter: { name: renterName, username: sorted[0].renter?.username ?? null },
+        payment_status: paymentStatus,
+        booking_type: sorted[0].booking_type,
+        ids: sorted.map((b) => b.id),
+        intervals,
+      });
+    }
   }
   return groups.sort((a, b) => a.start.localeCompare(b.start));
 }
@@ -113,12 +115,23 @@ export function AdminCalendar({ defaultMode }: { defaultMode?: PeriodMode }) {
   useEffect(() => { load(); }, [load]);
 
   async function openBooking(id: string) {
+    const daysToSearch = mode === "week" ? days : Object.values(monthDays);
+    for (const day of daysToSearch) {
+      for (const chair of day.chairs) {
+        const found = chair.bookings.find((b) => b.id === id);
+        if (found) {
+          const related = chair.bookings.filter((b) => b.id !== id && b.renter?.id === found.renter?.id);
+          setSelectedBooking({ booking: found as unknown as Booking, related: related as unknown as Booking[] });
+          return;
+        }
+      }
+    }
     try {
       const all = await api.adminBookings({});
       const found = all.find((b) => b.id === id);
       if (!found) return;
       const date = found.starts_at.slice(0, 10);
-      const day = mode === "week" ? (days.find((d) => d.date === date)) : (monthDays[date]);
+      const day = mode === "week" ? days.find((d) => d.date === date) : monthDays[date];
       const chair = day?.chairs.find((c) => c.chair_id === found.chair_id);
       const related = chair?.bookings.filter((b) => b.id !== id && b.renter?.id === found.renter?.id) ?? [];
       setSelectedBooking({ booking: found, related: related as unknown as Booking[] });
@@ -205,25 +218,28 @@ export function AdminCalendar({ defaultMode }: { defaultMode?: PeriodMode }) {
               {!selectedDay.working_hours.is_open ? (
                 <Empty icon="🔒">Барбершоп закрыт</Empty>
               ) : (
-                selectedDay.chairs.map((chair) => (
-                  <section key={chair.chair_id} className="card">
-                    <div className="card-head">
-                      <h2>{chair.name}</h2>
-                      <span className="muted small">{groupBookings(chair.bookings).length ? `${groupBookings(chair.bookings).length} бр.` : "свободно"}</span>
-                    </div>
-                    <Occupancy day={selectedDay} bookings={chair.bookings} />
-                    {groupBookings(chair.bookings).map((g) => (
-                      <button key={g.ids.join(",")} className="item-plain" onClick={() => { haptic(); openBooking(g.ids[0]); }}>
-                          <div>
-                            <div style={{ fontWeight: 600 }}>{g.booking_type === "full_day" ? "Весь день" : g.intervals} · {g.renter.name}</div>
-                            {!!g.price && <div className="muted small">{formatMoney(g.price, chair.bookings[0]?.currency ?? "BYN")}</div>}
-                          </div>
-                          <span className={`chip ${g.payment_status === "paid" ? "ok" : "warn"}`}>{g.payment_status === "paid" ? "оплачено" : "не оплачено"}</span>
-                        </button>
-                      ))}
-                    <p className="muted small">Свободно: {chair.free_intervals.map((f) => `${formatTime(f.starts_at)}–${formatTime(f.ends_at)}`).join(", ") || "нет"}</p>
-                  </section>
-                ))
+                selectedDay.chairs.map((chair) => {
+                  const grouped = groupBookings(chair.bookings);
+                  return (
+                    <section key={chair.chair_id} className="card">
+                      <div className="card-head">
+                        <h2>{chair.name}</h2>
+                        <span className="muted small">{grouped.length ? `${grouped.length} бр.` : "свободно"}</span>
+                      </div>
+                      <Occupancy day={selectedDay} bookings={chair.bookings} />
+                      {grouped.map((g) => (
+                        <button key={g.ids.join(",")} className="item-plain" onClick={() => { haptic(); openBooking(g.ids[0]); }}>
+                            <div>
+                              <div style={{ fontWeight: 600 }}>{g.booking_type === "full_day" ? "Весь день" : g.intervals} · {g.renter.name}</div>
+                              {!!g.price && <div className="muted small">{formatMoney(g.price, chair.bookings[0]?.currency ?? "BYN")}</div>}
+                            </div>
+                            <span className={`chip ${g.payment_status === "paid" ? "ok" : "warn"}`}>{g.payment_status === "paid" ? "оплачено" : "не оплачено"}</span>
+                          </button>
+                        ))}
+                      <p className="muted small">Свободно: {chair.free_intervals.map((f) => `${formatTime(f.starts_at)}–${formatTime(f.ends_at)}`).join(", ") || "нет"}</p>
+                    </section>
+                  );
+                })
               )}
             </>
           )}

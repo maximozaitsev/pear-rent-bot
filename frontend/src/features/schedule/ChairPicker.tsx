@@ -15,27 +15,6 @@ function slotFree(startLocal: string, endLocal: string, free: { starts_at: strin
   return free.some((f) => s >= hourRange(f.starts_at) && e <= hourRange(f.ends_at));
 }
 
-function formatHourIntervals(hours: string[]): string {
-  if (hours.length === 0) return "";
-  const sorted = [...hours].sort((a, b) => a.localeCompare(b));
-  const groups: string[][] = [];
-  for (const h of sorted) {
-    const last = groups[groups.length - 1];
-    if (last && Number(h.slice(0, 2)) === Number(last[last.length - 1].slice(0, 2)) + 1) {
-      last.push(h);
-    } else {
-      groups.push([h]);
-    }
-  }
-  return groups
-    .map((g) => {
-      const start = g[0];
-      const endH = Number(g[g.length - 1].slice(0, 2)) + 1;
-      return `${start.slice(0, 5)}-${String(endH).padStart(2, "0")}:00`;
-    })
-    .join(", ");
-}
-
 interface HourGroup { start: string; end: string; hours: number; slots: string[] }
 
 function groupHourIntervals(hours: string[]): HourGroup[] {
@@ -123,7 +102,7 @@ export function ChairPicker({
     return slotFree(start, end, effectiveFree);
   });
   const groups = useMemo(() => groupHourIntervals(selectedHours), [selectedHours]);
-  const price = mode === "full_day" ? 6000 : calcHourlyPrice(selectedHours.length);
+  const price = mode === "full_day" ? 6000 : groups.reduce((sum, g) => sum + calcHourlyPrice(g.hours), 0);
   const canSubmit = !isPast && !busy && (mode === "hourly" ? allFree : canFullDay);
 
   async function submit() {
@@ -138,21 +117,16 @@ export function ChairPicker({
           ends_at: `${day.date}T${wh.close_time.slice(0, 5)}:00`,
           booking_type: "full_day",
         });
+        haptic("success");
+        onBooked();
       } else {
         if (!selectedHours.length || !allFree) throw new Error("Выберите свободные часы");
-        const totalPrice = calcHourlyPrice(selectedHours.length);
-        const items = groups.map((g, idx) => {
-          const share = idx === groups.length - 1
-            ? totalPrice - groups.slice(0, -1).reduce((s, x) => s + Math.round(totalPrice * x.hours / selectedHours.length), 0)
-            : Math.round(totalPrice * g.hours / selectedHours.length);
-          return {
-            chair_id: chair.chair_id,
-            starts_at: `${day.date}T${g.start}`,
-            ends_at: `${day.date}T${g.end}`,
-            booking_type: "hourly" as const,
-            price_amount: share,
-          };
-        });
+        const items = groups.map((g) => ({
+          chair_id: chair.chair_id,
+          starts_at: `${day.date}T${g.start}`,
+          ends_at: `${day.date}T${g.end}`,
+          booking_type: "hourly" as const,
+        }));
         const res = await api.createBookingsBulk(items);
         if (res.created_count === 0) {
           throw new Error(res.results[0]?.error || "Не удалось создать бронирования");
@@ -175,7 +149,7 @@ export function ChairPicker({
       {error && <Banner kind="bad">{error}</Banner>}
       <div className="price-line">
         <span className="muted">
-          {mode === "full_day" ? "Весь день" : selectedHours.length ? `${formatHourIntervals(selectedHours)} · ${selectedHours.length} ч` : "Выберите часы"}
+          {mode === "full_day" ? "Весь день" : selectedHours.length ? `${groups.map((g) => `${g.start.slice(0, 5)}-${g.end}`).join(", ")} · ${selectedHours.length} ч` : "Выберите часы"}
         </span>
         <b>{price ? formatMoney(price) : "—"}</b>
       </div>

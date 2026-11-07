@@ -6,7 +6,7 @@ import { useAuth } from "../features/auth/AuthContext";
 import { RegisterGate } from "../features/auth/RegisterGate";
 import { CompleteRegistration } from "../features/auth/CompleteRegistration";
 import { RenterSchedule } from "../features/schedule/RenterSchedule";
-import { formatMoney, formatTime, readDefaultPeriod, writeDefaultPeriod, type PeriodMode } from "../features/schedule/time";
+import { formatMoney, formatTime, groupByDay, readDefaultPeriod, writeDefaultPeriod, type PeriodMode } from "../features/schedule/time";
 import { MyBookings } from "../features/bookings/MyBookings";
 import { AdminApp } from "../features/admin/AdminApp";
 import { Icon, Loader, Sheet, TabBar, TopBar, dayParts, todayIso } from "../shared/ui";
@@ -29,15 +29,8 @@ function NearestBooking({ refreshKey }: { refreshKey: number }) {
     api
       .myBookings()
       .then((items) => {
-        const byDay: Map<string, Booking[]> = new Map();
-        for (const b of items) {
-          const day = b.starts_at.slice(0, 10);
-          const arr = byDay.get(day) ?? [];
-          arr.push(b);
-          byDay.set(day, arr);
-        }
-        const days = Array.from(byDay.entries()).sort((a, b) => a[0].localeCompare(b[0]));
-        if (alive) setDayBookings(days.length ? days[0][1] : null);
+        const grouped = groupByDay(items);
+        if (alive) setDayBookings(grouped.length ? grouped[0].bookings : null);
       })
       .catch(() => {
         if (alive) setDayBookings(null);
