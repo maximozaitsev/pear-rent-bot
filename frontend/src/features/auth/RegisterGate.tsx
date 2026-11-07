@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { api, authLog, getTelegramWebApp, setToken } from "../../api/client";
 import { useAuth } from "./AuthContext";
+import { AuthDebugPanel } from "../../shared/AuthDebugPanel";
 import { Banner, errorText, haptic } from "../../shared/ui";
 
 export function RegisterGate({ reason }: { reason: string }) {
@@ -73,6 +74,7 @@ export function RegisterGate({ reason }: { reason: string }) {
         </details>
         {error && <Banner kind="bad">{error}</Banner>}
         <button className="btn btn-primary btn-block" disabled={busy} onClick={() => submit()}>{busy ? "Регистрация..." : "Зарегистрироваться"}</button>
+        <AuthDebugPanel />
       </section>
     </main>
   );

@@ -103,3 +103,39 @@ npm run dev
 - Консоль браузера с включённым `localStorage.setItem('pear_auth_debug','1')` или `VITE_AUTH_DEBUG=1`
 
 Логи помечены: `http_*`, `auth_telegram`, `register`, `invite_register`, `dev-bypass`, `[pear-auth]`. Критичные места логируются (валидация initData, поиск юзера, регистрация по инвайту, retry в AuthContext).
+
+`railway connect postgres`
+
+`-- Проверка (должна вернуть 1 строку)
+SELECT id, telegram_id, username, role FROM users WHERE username = 'ihaveusernames';
+
+BEGIN;
+
+-- 1) Удалить ВСЕ логи уведомлений, связанные с этим пользователем:
+--    и как получатель, и логи по его броням (и броням, которые он создал)
+DELETE FROM notification_log
+WHERE recipient_user_id = (SELECT id FROM users WHERE username = 'ihaveusernames')
+   OR booking_id IN (
+        SELECT id FROM bookings
+        WHERE renter_id = (SELECT id FROM users WHERE username = 'ihaveusernames')
+           OR created_by = (SELECT id FROM users WHERE username = 'ihaveusernames')
+      );
+
+-- 2) Удалить брони, где он арендатор или создатель
+DELETE FROM bookings
+WHERE renter_id = (SELECT id FROM users WHERE username = 'ihaveusernames')
+   OR created_by = (SELECT id FROM users WHERE username = 'ihaveusernames');
+
+-- 3) Сбросить инвайт, которым он воспользовался (чтобы можно было заново пройти флоу)
+UPDATE invitations
+SET used_by = NULL, status = 'pending', used_at = NULL
+WHERE used_by = (SELECT id FROM users WHERE username = 'ihaveusernames');
+
+-- 4) Удалить пользователя
+DELETE FROM users WHERE username = 'ihaveusernames'
+RETURNING id, telegram_id, username;
+
+-- Контроль (должно быть 0 строк)
+SELECT count(*) AS left_users FROM users WHERE username = 'ihaveusernames';
+
+COMMIT;`

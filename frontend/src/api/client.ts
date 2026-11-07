@@ -37,19 +37,58 @@ export function setToken(token: string | null): void {
   else localStorage.removeItem(TOKEN_KEY);
 }
 
-function shouldLogAuthDebug(): boolean {
+export type AuthLogEntry = { ts: string; event: string; payload?: Record<string, unknown> };
+const AUTH_LOG_MAX = 200;
+let authLogBuf: AuthLogEntry[] = [];
+const authLogListeners = new Set<() => void>();
+
+function notifyAuthLog() {
+  for (const fn of authLogListeners) try { fn(); } catch { /* ignore */ }
+}
+
+export function subscribeAuthLog(fn: () => void): () => void {
+  authLogListeners.add(fn);
+  return () => authLogListeners.delete(fn);
+}
+
+export function getAuthLogs(): AuthLogEntry[] {
+  return authLogBuf;
+}
+
+export function clearAuthLogs(): void {
+  authLogBuf = [];
+  notifyAuthLog();
+}
+
+export function isAuthDebugEnabled(): boolean {
   try {
+    const qs = new URLSearchParams(window.location.search);
+    const hash = new URLSearchParams((window.location.hash || "").replace(/^#/, ""));
+    if (qs.get("debug") === "1" || hash.get("debug") === "1") return true;
     return localStorage.getItem("pear_auth_debug") === "1" || (import.meta.env.VITE_AUTH_DEBUG as string | undefined) === "1";
   } catch {
     return false;
   }
 }
 
-export function authLog(event: string, payload?: Record<string, unknown>): void {
-  const entry = { ts: new Date().toISOString(), scope: "auth", event, ...(payload ?? {}) };
+export function setAuthDebugEnabled(on: boolean): void {
   try {
-    if (shouldLogAuthDebug()) console.info("[pear-auth]", entry);
-    else console.debug("[pear-auth]", entry);
+    if (on) localStorage.setItem("pear_auth_debug", "1");
+    else localStorage.removeItem("pear_auth_debug");
+  } catch { /* ignore */ }
+  notifyAuthLog();
+}
+
+export function authLog(event: string, payload?: Record<string, unknown>): void {
+  const entry: AuthLogEntry = { ts: new Date().toISOString(), event, ...(payload ? { payload } : {}) };
+  try {
+    if (isAuthDebugEnabled()) {
+      authLogBuf = [...authLogBuf, entry].slice(-AUTH_LOG_MAX);
+      console.info("[pear-auth]", entry);
+      notifyAuthLog();
+    } else {
+      console.debug("[pear-auth]", entry);
+    }
   } catch { /* ignore */ }
 }
 
