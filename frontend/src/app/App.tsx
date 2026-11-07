@@ -1,6 +1,6 @@
 // Примечание: AuthProvider убран отсюда — он уже оборачивает <App/> в main.tsx (раньше был вложенный дубль и двойной вызов авторизации).
 import { useEffect, useState } from "react";
-import { api, isAuthDebugEnabled } from "../api/client";
+import { api } from "../api/client";
 import type { Booking } from "../api/types";
 import { useAuth } from "../features/auth/AuthContext";
 import { RegisterGate } from "../features/auth/RegisterGate";
@@ -9,7 +9,6 @@ import { RenterSchedule } from "../features/schedule/RenterSchedule";
 import { formatMoney, formatTime, readDefaultPeriod, writeDefaultPeriod, type PeriodMode } from "../features/schedule/time";
 import { MyBookings } from "../features/bookings/MyBookings";
 import { AdminApp } from "../features/admin/AdminApp";
-import { AuthDebugPanel } from "../shared/AuthDebugPanel";
 import { Icon, Loader, Sheet, TabBar, TopBar, dayParts, todayIso } from "../shared/ui";
 
 function relDay(iso: string): { label: string; tone: "accent" | "mute" } {
@@ -139,7 +138,6 @@ function Router() {
     return (
       <main className="app no-tabs">
         <Loader />
-        {isAuthDebugEnabled() && <AuthDebugPanel />}
       </main>
     );
   if (state.status === "anonymous")

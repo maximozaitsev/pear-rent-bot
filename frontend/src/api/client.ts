@@ -19,12 +19,10 @@ const TOKEN_KEY = "pear_rent_token";
 export class ApiError extends Error {
   status: number;
   detail: unknown;
-  requestId: string | null;
-  constructor(status: number, detail: unknown, message?: string, requestId?: string | null) {
+  constructor(status: number, detail: unknown, message?: string) {
     super(message ?? `Request failed (${status})`);
     this.status = status;
     this.detail = detail;
-    this.requestId = requestId ?? null;
   }
 }
 
@@ -37,60 +35,13 @@ export function setToken(token: string | null): void {
   else localStorage.removeItem(TOKEN_KEY);
 }
 
-export type AuthLogEntry = { ts: string; event: string; payload?: Record<string, unknown> };
-const AUTH_LOG_MAX = 200;
-let authLogBuf: AuthLogEntry[] = [];
-const authLogListeners = new Set<() => void>();
-
-function notifyAuthLog() {
-  for (const fn of authLogListeners) try { fn(); } catch { /* ignore */ }
+export function getTelegramWebApp() {
+  return window.Telegram?.WebApp;
 }
 
-export function subscribeAuthLog(fn: () => void): () => void {
-  authLogListeners.add(fn);
-  return () => authLogListeners.delete(fn);
-}
-
-export function getAuthLogs(): AuthLogEntry[] {
-  return authLogBuf;
-}
-
-export function clearAuthLogs(): void {
-  authLogBuf = [];
-  notifyAuthLog();
-}
-
-export function isAuthDebugEnabled(): boolean {
-  try {
-    const qs = new URLSearchParams(window.location.search);
-    const hash = new URLSearchParams((window.location.hash || "").replace(/^#/, ""));
-    if (qs.get("debug") === "1" || hash.get("debug") === "1") return true;
-    return localStorage.getItem("pear_auth_debug") === "1" || (import.meta.env.VITE_AUTH_DEBUG as string | undefined) === "1";
-  } catch {
-    return false;
-  }
-}
-
-export function setAuthDebugEnabled(on: boolean): void {
-  try {
-    if (on) localStorage.setItem("pear_auth_debug", "1");
-    else localStorage.removeItem("pear_auth_debug");
-  } catch { /* ignore */ }
-  notifyAuthLog();
-}
-
-export function authLog(event: string, payload?: Record<string, unknown>): void {
-  const entry: AuthLogEntry = { ts: new Date().toISOString(), event, ...(payload ? { payload } : {}) };
-  try {
-    // Always buffer (capped) so logs survive "enable debug after boot" flows in Mini App.
-    authLogBuf = [...authLogBuf, entry].slice(-AUTH_LOG_MAX);
-    notifyAuthLog();
-    if (isAuthDebugEnabled()) console.info("[pear-auth]", entry);
-    else console.debug("[pear-auth]", entry);
-  } catch { /* ignore */ }
-}
-
-export function readInitDataFromLocation(): string {
+export function getTelegramInitData(): string {
+  const tg = getTelegramWebApp();
+  if (tg?.initData) return tg.initData;
   try {
     const hash = new URLSearchParams((window.location.hash || "").replace(/^#/, ""));
     const qs = new URLSearchParams(window.location.search || "");
@@ -107,26 +58,16 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const headers = new Headers(init?.headers);
   if (!headers.has("Content-Type") && init?.body) headers.set("Content-Type", "application/json");
   if (token) headers.set("Authorization", `Bearer ${token}`);
-  const url = `${API_BASE}${path}`;
-  const method = (init?.method ?? "GET").toUpperCase();
-  authLog("request_start", { method, path, hasToken: !!token });
-  const res = await fetch(url, { ...init, headers });
-  const requestId = res.headers.get("x-request-id");
+  const res = await fetch(`${API_BASE}${path}`, { ...init, headers });
   const text = await res.text();
   let data: unknown = null;
   if (text) {
-    try {
-      data = JSON.parse(text);
-    } catch {
-      data = text;
-    }
+    try { data = JSON.parse(text); } catch { data = text; }
   }
   if (!res.ok) {
     const detail = (data && typeof data === "object" && "detail" in data ? (data as { detail: unknown }).detail : data) ?? res.statusText;
-    authLog("request_error", { method, path, status: res.status, requestId, detail });
-    throw new ApiError(res.status, detail, typeof detail === "string" ? detail : JSON.stringify(detail), requestId);
+    throw new ApiError(res.status, detail, typeof detail === "string" ? detail : JSON.stringify(detail));
   }
-  authLog("request_ok", { method, path, status: res.status, requestId });
   return data as T;
 }
 
@@ -148,11 +89,6 @@ export const api = {
     request<AuthResponse>("/auth/register", {
       method: "POST",
       body: JSON.stringify({ init_data: initData, code: code.trim() }),
-    }),
-  devBypass: (payload: { init_data: string; code?: string; dev_user?: unknown }) =>
-    request<AuthResponse>("/auth/dev-bypass", {
-      method: "POST",
-      body: JSON.stringify(payload),
     }),
   completeRegistration: (payload: { first_name: string; last_name?: string | null; phone: string }) =>
     request<AuthResponse>("/auth/complete-registration", {
@@ -207,7 +143,3 @@ export const api = {
   adminDeleteException: (day: string) =>
     request<void>(`/admin/schedule/exceptions/${day}`, { method: "DELETE" }),
 };
-
-export function getTelegramWebApp() {
-  return window.Telegram?.WebApp;
-}

@@ -2,15 +2,7 @@ import logging
 
 from aiogram import Bot, Dispatcher, Router
 from aiogram.filters import CommandStart
-from aiogram.types import (
-    InlineKeyboardButton,
-    InlineKeyboardMarkup,
-    KeyboardButton,
-    MenuButtonWebApp,
-    Message,
-    WebAppInfo,
-)
-from aiogram.utils.keyboard import ReplyKeyboardBuilder
+from aiogram.types import MenuButtonWebApp, Message, WebAppInfo
 
 from app.core.config import settings
 
@@ -24,50 +16,20 @@ _menu_button_configured = False
 
 def _mini_app_url() -> str | None:
     url = (settings.telegram_mini_app_url or "").rstrip("/")
-    if not url:
-        return None
-    if not url.startswith("https://"):
-        logger.warning("Telegram Mini App URL must be https; got %r", url)
-        return None
-    if "example.com" in url:
-        logger.warning("Telegram Mini App URL is placeholder (example.com); bot buttons disabled")
+    if not url or not url.startswith("https://") or "example.com" in url:
         return None
     return url
-
-
-def _direct_link(url: str) -> str:
-    username = (settings.telegram_bot_username or "").strip().lstrip("@")
-    if username:
-        return f"https://t.me/{username}/app"
-    # Fallback: open the web app URL directly (no initData context is guaranteed outside TG;
-    # frontend will show a clear recovery state). Prefer setting TELEGRAM_BOT_USERNAME.
-    return url
-
-
-def _open_markup(url: str) -> InlineKeyboardMarkup:
-    # Inline web_app buttons reliably provide initData in Telegram clients.
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [InlineKeyboardButton(text="Открыть приложение", web_app=WebAppInfo(url=url))]
-        ]
-    )
 
 
 @router.message(CommandStart())
 async def handle_start(message: Message) -> None:
-    mini_app_url = _mini_app_url()
-    text = (
-        "Pear Rent Bot.\n\n"
-        "Если вы уже зарегистрированы — откройте приложение.\n"
-        "Если доступа нет — попросите администратора код приглашения, "
-        "затем откройте приложение и введите код.\n\n"
-        "Важно: открывайте через кнопку ниже или Menu Button бота (так Telegram передаёт данные для входа)."
+    await message.answer(
+        "🍐 <b>Pear Rent</b>\n\n"
+        "Аренда кресел в барбершопе — быстро и удобно.\n\n"
+        "• Уже есть доступ? Нажмите <b>«Открыть»</b> в меню бота ниже.\n"
+        "• Нет доступа? Попросите администратора код приглашения и введите его в приложении.",
+        parse_mode="HTML",
     )
-    if mini_app_url:
-        await message.answer(text, reply_markup=_open_markup(mini_app_url))
-    else:
-        logger.info("Mini App URL unavailable; sending /start without button")
-        await message.answer(text)
 
 
 def get_dispatcher() -> Dispatcher:
@@ -99,7 +61,6 @@ async def _ensure_menu_button(bot: Bot) -> None:
             menu_button=MenuButtonWebApp(text="Открыть", web_app=WebAppInfo(url=mini_app_url))
         )
         _menu_button_configured = True
-        logger.info("Telegram chat menu button configured for Mini App %s", mini_app_url)
     except Exception:
         logger.exception("Failed to set Telegram chat menu button")
 
@@ -110,7 +71,6 @@ async def start_bot_polling() -> None:
         return
     await _ensure_menu_button(bot)
     dp = get_dispatcher()
-    logger.info("Starting Telegram bot polling")
     await dp.start_polling(bot, handle_signals=False)
 
 
