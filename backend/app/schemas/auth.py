@@ -23,6 +23,7 @@ class UserOut(BaseModel):
     last_name: str | None
     phone: str | None
     role: str
+    renter_role: str | None = None
     is_active: bool
     created_at: datetime
 

@@ -130,6 +130,8 @@ export const api = {
   adminRenter: (id: string) => request<{ renter: Renter; bookings: Booking[]; stats: RenterPaymentStats }>(`/admin/renters/${id}`),
   adminSetRenterStatus: (id: string, is_active: boolean) =>
     request<Renter>(`/admin/renters/${id}/status`, { method: "PATCH", body: JSON.stringify({ is_active }) }),
+  adminSetRenterRole: (id: string, renter_role: "permanent" | "temporary") =>
+    request<Renter>(`/admin/renters/${id}/role`, { method: "PATCH", body: JSON.stringify({ renter_role }) }),
 
   adminInvitations: () => request<Invitation[]>("/admin/invitations"),
   adminCreateInvitation: () => request<Invitation>("/admin/invitations", { method: "POST" }),

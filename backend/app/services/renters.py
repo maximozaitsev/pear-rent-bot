@@ -4,7 +4,7 @@ from fastapi import HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models import Booking, User, UserRole
+from app.models import Booking, RenterRole, User, UserRole
 
 
 def list_renters(db: Session) -> list[User]:
@@ -34,6 +34,16 @@ def set_renter_status(db: Session, *, renter_id: uuid.UUID, is_active: bool) -> 
     if renter is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Renter not found")
     renter.is_active = is_active
+    db.commit()
+    db.refresh(renter)
+    return renter
+
+
+def set_renter_role(db: Session, *, renter_id: uuid.UUID, renter_role: RenterRole) -> User:
+    renter = db.scalar(select(User).where(User.id == renter_id, User.role == UserRole.renter))
+    if renter is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Renter not found")
+    renter.renter_role = renter_role
     db.commit()
     db.refresh(renter)
     return renter

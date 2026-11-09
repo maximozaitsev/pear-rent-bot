@@ -1,4 +1,5 @@
 from datetime import date, datetime, time
+from typing import Literal
 
 from pydantic import BaseModel, Field
 
@@ -73,6 +74,7 @@ class RenterOut(BaseModel):
     last_name: str | None
     phone: str | None = None
     is_active: bool
+    renter_role: str | None = None
     created_at: datetime
 
 
@@ -90,3 +92,7 @@ class RenterDetailOut(BaseModel):
 
 class RenterStatusRequest(BaseModel):
     is_active: bool
+
+
+class RenterRoleRequest(BaseModel):
+    renter_role: Literal["permanent", "temporary"]

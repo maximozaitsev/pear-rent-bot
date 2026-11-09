@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { api } from "../../api/client";
 import type { ChairDay, DayBooking, DaySchedule } from "../../api/types";
-import { addDays, firstOfMonth, formatMoney, formatTime, monthGridWeeks, type PeriodMode } from "./time";
+import { addDays, firstOfMonth, formatMoney, formatTime, monthGridWeeks, type PeriodMode, type RenterRole, renterBookingWindow, monthBookingStatus, bookingOpenMessage, isoDate } from "./time";
 import { ChairPicker } from "./ChairPicker";
 import { Banner, DayStrip, Empty, Icon, MonthGrid, Sheet, WeekNav, dayParts, errorText, haptic, todayIso } from "../../shared/ui";
 
@@ -20,10 +20,23 @@ type PickedDay = { date: string; chairId: string; chairName: string; isAlt: bool
 
 const FULL_DAY_PRICE = 6000;
 
-export function RenterSchedule({ refreshKey, defaultMode }: { refreshKey?: number; defaultMode?: PeriodMode }) {
+export function RenterSchedule({
+  refreshKey,
+  defaultMode,
+  renterRole,
+}: {
+  refreshKey?: number;
+  defaultMode?: PeriodMode;
+  renterRole?: RenterRole | null;
+}) {
   const [mode, setMode] = useState<PeriodMode>(defaultMode ?? "week");
   const [weekStart, setWeekStart] = useState(() => todayStart());
   const [monthAnchor, setMonthAnchor] = useState(() => firstOfMonth(new Date()));
+  const now = new Date();
+  const bookingWindow = renterBookingWindow(renterRole ?? null, now);
+  const winFrom = isoDate(bookingWindow.from);
+  const winTo = isoDate(bookingWindow.to);
+  const monthStatus = monthBookingStatus(monthAnchor, renterRole ?? null, now);
   const [weekDays, setWeekDays] = useState<DaySchedule[]>([]);
   const [monthDays, setMonthDays] = useState<Record<string, DaySchedule>>({});
   const [selectedDate, setSelectedDate] = useState("");
@@ -55,8 +68,10 @@ export function RenterSchedule({ refreshKey, defaultMode }: { refreshKey?: numbe
         const from = weeks[0][0].date;
         const to = weeks[weeks.length - 1][6].date;
         // Schedule/availability API supports up to 31 days per request.
-        const a = await api.scheduleAvailability(from, addDays(new Date(from + "T00:00:00Z"), 30).toISOString().slice(0, 10));
-        const b = await api.scheduleAvailability(addDays(new Date(from + "T00:00:00Z"), 31).toISOString().slice(0, 10), to);
+        const fromPlus30 = addDays(new Date(from + "T00:00:00Z"), 30).toISOString().slice(0, 10);
+        const a = await api.scheduleAvailability(from, fromPlus30);
+        const fromPlus31 = addDays(new Date(from + "T00:00:00Z"), 31).toISOString().slice(0, 10);
+        const b = fromPlus31 <= to ? await api.scheduleAvailability(fromPlus31, to) : { days: [] as DaySchedule[] };
         const map: Record<string, DaySchedule> = {};
         for (const d of [...a.days, ...b.days]) map[d.date] = d;
         setMonthDays(map);
@@ -153,8 +168,12 @@ export function RenterSchedule({ refreshKey, defaultMode }: { refreshKey?: numbe
     return !!resolvePick(d);
   }
 
+  function dateEnabled(d: DaySchedule): boolean {
+    return d.date >= today && d.date >= winFrom && d.date <= winTo && !!d.working_hours.is_open;
+  }
+
   function canPickDate(d: DaySchedule): boolean {
-    return isDayBookable(d);
+    return dateEnabled(d) && isDayBookable(d);
   }
 
   function toggleSelectMode() {
@@ -269,32 +288,38 @@ export function RenterSchedule({ refreshKey, defaultMode }: { refreshKey?: numbe
       )}
 
       {mode === "week" && !!weekDays.length && (
-        <DayStrip
-          days={weekDays}
-          selected={selectedDate}
-          onSelect={selectMode ? onDayPick : (d) => setSelectedDate(d.date)}
-          pickedDates={selectMode ? pickedDates : undefined}
-          canPickDate={selectMode ? canPickDate : undefined}
-          dotVariant="renter"
+          <DayStrip
+            days={weekDays}
+            selected={selectedDate}
+            onSelect={selectMode ? onDayPick : (d) => setSelectedDate(d.date)}
+            pickedDates={selectMode ? pickedDates : undefined}
+            canPickDate={canPickDate}
+            dotVariant="renter"
           pickedChairByDate={selectMode ? pickedChairByDate : undefined}
           renterOwn={selectMode ? undefined : (d) => d.chairs.some((c) => c.bookings.some((b) => b.is_mine))}
           renterOwnDates={selectMode ? myBookedDates : undefined}
         />
       )}
       {mode === "month" && (
-        <MonthGrid
-          month={monthAnchor}
-          daysByDate={monthDays}
-          selected={selectedDate}
-          onSelect={selectMode ? onDayPick : (d) => setSelectedDate(d.date)}
-          loading={loading}
-          pickedDates={selectMode ? pickedDates : undefined}
-          canPickDate={selectMode ? canPickDate : undefined}
-          dotVariant="renter"
-          pickedChairByDate={selectMode ? pickedChairByDate : undefined}
-          renterOwn={selectMode ? undefined : (d) => d.chairs.some((c) => c.bookings.some((b) => b.is_mine))}
-          renterOwnDates={selectMode ? myBookedDates : undefined}
-        />
+        <>
+          {monthStatus !== "open" ? (
+            <Empty icon="🔒">{bookingOpenMessage(monthStatus, renterRole ?? null, monthAnchor, now)}</Empty>
+          ) : (
+            <MonthGrid
+              month={monthAnchor}
+              daysByDate={monthDays}
+              selected={selectedDate}
+              onSelect={selectMode ? onDayPick : (d) => setSelectedDate(d.date)}
+              loading={loading}
+              pickedDates={selectMode ? pickedDates : undefined}
+              canPickDate={canPickDate}
+              dotVariant="renter"
+              pickedChairByDate={selectMode ? pickedChairByDate : undefined}
+              renterOwn={selectMode ? undefined : (d) => d.chairs.some((c) => c.bookings.some((b) => b.is_mine))}
+              renterOwnDates={selectMode ? myBookedDates : undefined}
+            />
+          )}
+        </>
       )}
 
       {selectMode && (

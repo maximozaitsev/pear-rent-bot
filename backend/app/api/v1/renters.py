@@ -6,10 +6,10 @@ from sqlalchemy.orm import Session
 
 from app.core.auth import require_admin
 from app.core.db import get_db
-from app.models import Booking, PaymentStatus, User
-from app.schemas.admin import RenterOut, RenterPaymentStats, RenterStatusRequest
+from app.models import Booking, PaymentStatus, RenterRole, User
+from app.schemas.admin import RenterOut, RenterPaymentStats, RenterRoleRequest, RenterStatusRequest
 from app.schemas.bookings import BookingOut
-from app.services.renters import get_renter, list_renters, set_renter_status
+from app.services.renters import get_renter, list_renters, set_renter_role, set_renter_status
 from app.services.schedule import shop_tz
 
 router = APIRouter()
@@ -24,6 +24,7 @@ def _renter_out(user: User) -> RenterOut:
         last_name=user.last_name,
         phone=user.phone,
         is_active=user.is_active,
+        renter_role=user.renter_role.value if user.renter_role else None,
         created_at=user.created_at,
     )
 
@@ -88,3 +89,19 @@ def admin_set_renter_status(
     _admin: User = Depends(require_admin),
 ):
     return _renter_out(set_renter_status(db, renter_id=renter_id, is_active=payload.is_active))
+
+
+@router.patch("/admin/renters/{renter_id}/role", response_model=RenterOut)
+def admin_set_renter_role(
+    renter_id: uuid.UUID,
+    payload: RenterRoleRequest,
+    db: Session = Depends(get_db),
+    _admin: User = Depends(require_admin),
+):
+    return _renter_out(
+        set_renter_role(
+            db,
+            renter_id=renter_id,
+            renter_role=RenterRole(payload.renter_role),
+        )
+    )

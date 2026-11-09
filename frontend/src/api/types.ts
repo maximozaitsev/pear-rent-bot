@@ -1,4 +1,5 @@
 export type Role = "admin" | "renter";
+export type RenterRole = "permanent" | "temporary";
 
 export interface User {
   id: string;
@@ -8,6 +9,7 @@ export interface User {
   last_name: string | null;
   phone: string | null;
   role: Role;
+  renter_role: RenterRole | null;
   is_active: boolean;
   created_at: string;
 }
@@ -138,6 +140,7 @@ export interface Renter {
   last_name: string | null;
   phone: string | null;
   is_active: boolean;
+  renter_role: RenterRole | null;
   created_at: string;
 }
 

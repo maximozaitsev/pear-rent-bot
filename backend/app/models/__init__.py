@@ -4,12 +4,13 @@ from app.models.chair import Chair
 from app.models.invitation import Invitation, InvitationStatus
 from app.models.notification import NotificationLog
 from app.models.schedule import DateScheduleOverride, WeeklySchedule
-from app.models.user import User, UserRole
+from app.models.user import RenterRole, User, UserRole
 
 __all__ = [
     "Base",
     "User",
     "UserRole",
+    "RenterRole",
     "Chair",
     "WeeklySchedule",
     "DateScheduleOverride",

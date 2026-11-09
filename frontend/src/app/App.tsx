@@ -114,7 +114,7 @@ function RenterApp() {
         {tab === "schedule" ? (
           <>
             <NearestBooking refreshKey={refreshKey} />
-            <RenterSchedule key={defaultPeriod} refreshKey={refreshKey} defaultMode={defaultPeriod} />
+            <RenterSchedule key={defaultPeriod} refreshKey={refreshKey} defaultMode={defaultPeriod} renterRole={state.status === "ready" ? state.user.renter_role ?? null : null} />
           </>
         ) : (
           <MyBookings onChanged={() => setRefreshKey((k) => k + 1)} />

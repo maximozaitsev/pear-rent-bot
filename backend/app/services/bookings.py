@@ -1,17 +1,28 @@
+import calendar
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 
 from fastapi import HTTPException, status
 from sqlalchemy import and_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.models import Booking, BookingStatus, BookingType, Chair, PaymentStatus, User, UserRole
+from app.models import (
+    Booking,
+    BookingStatus,
+    BookingType,
+    Chair,
+    PaymentStatus,
+    RenterRole,
+    User,
+    UserRole,
+)
 from app.services.pricing import calculate_price
 from app.services.schedule import (
     combine_local,
     get_working_hours,
     localize_shop,
+    shop_tz,
     validate_booking_window,
 )
 
@@ -61,6 +72,32 @@ def _resolve_renter(db: Session, *, actor: User, renter_id: uuid.UUID | None) ->
     )
 
 
+def _assert_renter_booking_window(renter: User, starts_local: datetime) -> None:
+    """Role-based booking horizon.
+
+    Permanent: current and next month only.
+    Temporary: current month only; next month opens after the 15th of the current month.
+    Nobody can book the month after the next one.
+    """
+    role = renter.renter_role
+    now = datetime.now(shop_tz())
+    year, month = now.year, now.month
+    last_current = calendar.monthrange(year, month)[1]
+    if month == 12:
+        ny, nm = year + 1, 1
+    else:
+        ny, nm = year, month + 1
+    last_next = calendar.monthrange(ny, nm)[1]
+    last_allowed = date(ny, nm, last_next)
+    if role == RenterRole.temporary and now.day < 15:
+        last_allowed = date(year, month, last_current)
+    if starts_local.date() > last_allowed:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Бронь на этот месяц пока недоступна для вашей роли",
+        )
+
+
 def _create_technical_renter(db: Session, name: str) -> User:
     clean = name.strip()
     if not clean:
@@ -108,6 +145,7 @@ def create_booking(
             if renter_name is not None and renter_id is None:
                 renter_id = _create_technical_renter(db, renter_name).id
             renter = _resolve_renter(db, actor=actor, renter_id=renter_id)
+            _assert_renter_booking_window(renter, starts_local)
             _lock_chair(db, chair_id)
             validate_booking_window(db, starts_at=starts_at, ends_at=ends_at, allow_past=allow_past)
 

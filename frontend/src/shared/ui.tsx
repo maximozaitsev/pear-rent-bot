@@ -286,8 +286,8 @@ export function MonthGrid({
             const p = dayParts(cell.date);
             const picked = pickedDates?.has(cell.date);
             const own = renterOwnDates ? renterOwnDates.has(cell.date) : !!d && !!renterOwn?.(d);
-            const pickable = picking ? !!d && !!cell.inMonth && !own && (!canPickDate || canPickDate(d)) : !!d && cell.inMonth;
-            const disabled = !cell.inMonth || !d || !!loading || (picking && !pickable);
+            const pickable = picking ? (!!d && !!cell.inMonth && !own && (!canPickDate || canPickDate(d))) : (!!d && cell.inMonth && (!canPickDate || canPickDate(d)));
+            const disabled = !cell.inMonth || !d || !!loading || !pickable;
             const pickedClass = picking ? (own ? "own picked" : picked ? "picked" : "") : own ? "own" : "";
             return (
               <button
@@ -321,10 +321,10 @@ export function DayStrip({
         const n = counts?.[d.date] ?? 0;
         const picked = pickedDates?.has(d.date);
         const own = renterOwnDates ? renterOwnDates.has(d.date) : !!renterOwn?.(d);
-        const pickable = picking ? (!own && (!canPickDate || canPickDate(d))) : true;
+        const pickable = picking ? (!own && (!canPickDate || canPickDate(d))) : (!canPickDate || canPickDate(d));
         const pickedClass = picking ? (own ? "own picked" : picked ? "picked" : "") : own ? "own" : "";
         return (
-          <button key={d.date} className={`daypill ${selected === d.date ? "selected" : ""} ${d.date === today ? "today" : ""} ${pickedClass}`} disabled={picking && !pickable} onClick={() => { if (!(picking && own)) { haptic(); onSelect(d); } }}>
+          <button key={d.date} className={`daypill ${selected === d.date ? "selected" : ""} ${d.date === today ? "today" : ""} ${pickedClass}`} disabled={!pickable} onClick={() => { if (!(picking && own)) { haptic(); onSelect(d); } }}>
             <span className="wd">{p.wd}</span>
             <span className="num">{p.num}</span>
             <ChairDots day={d} variant={dotVariant} picked={picked} pickedChairId={pickedChairId} pickedChairByDate={pickedChairByDate} />

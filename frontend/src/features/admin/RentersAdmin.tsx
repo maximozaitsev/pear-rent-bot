@@ -3,7 +3,6 @@ import { api } from "../../api/client";
 import type { Booking, Renter, RenterPaymentStats } from "../../api/types";
 import { formatDateDot, formatMoney, formatTime } from "../schedule/time";
 import { Banner, Empty, Sheet, initials, errorText, haptic, personName } from "../../shared/ui";
-
 export function RentersAdmin() {
   const [items, setItems] = useState<Renter[] | null>(null);
   const [selected, setSelected] = useState<{ renter: Renter; bookings: Booking[]; stats: RenterPaymentStats } | null>(null);
@@ -25,6 +24,11 @@ export function RentersAdmin() {
     try { await api.adminSetRenterStatus(r.id, !r.is_active); haptic("success"); await load(); if (selected?.renter.id === r.id) await open(r.id); }
     catch (e) { setError(errorText(e)); }
     finally { setBusy(false); }
+  }
+
+  async function setRole(r: Renter, value: string) {
+    try { await api.adminSetRenterRole(r.id, value as "permanent" | "temporary"); haptic("success"); await load(); if (selected?.renter.id === r.id) await open(r.id); }
+    catch (e) { setError(errorText(e)); }
   }
 
   return (
@@ -58,6 +62,18 @@ export function RentersAdmin() {
             <dt>Регистрация</dt><dd>{formatDateDot(selected.renter.created_at)}</dd>
             <dt>Статус</dt><dd><span className={`chip ${selected.renter.is_active ? "ok" : "mute"}`}>{selected.renter.is_active ? "активен" : "неактивен"}</span></dd>
           </dl>
+          <section className="card" style={{ display: "grid", gap: 10 }}>
+            <div className="section-label" style={{ padding: 0 }}>Права бронирования</div>
+            <div className="segmented">
+              <button className={(selected.renter.renter_role ?? "permanent") === "permanent" ? "active" : ""} onClick={() => setRole(selected.renter, "permanent")}>Постоянный</button>
+              <button className={selected.renter.renter_role === "temporary" ? "active" : ""} onClick={() => setRole(selected.renter, "temporary")}>Временный</button>
+            </div>
+            <p className="muted small" style={{ margin: 0 }}>
+              {selected.renter.renter_role === "temporary"
+                ? "Текущий месяц; следующий — после 15-го числа текущего."
+                : "Текущий и следующий месяц с приоритетом."}
+            </p>
+          </section>
           <section className="card" style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, textAlign: "center" }}>
             <div><div className="muted small">Долг</div><div style={{ fontWeight: 700, fontSize: "1.1rem" }}>{formatMoney(selected.stats.debt)}</div></div>
             <div><div className="muted small">К оплате</div><div style={{ fontWeight: 700, fontSize: "1.1rem" }}>{formatMoney(selected.stats.to_pay)}</div></div>

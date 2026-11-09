@@ -22,6 +22,7 @@ def _user_out(user: User) -> UserOut:
         last_name=user.last_name,
         phone=user.phone,
         role=user.role.value,
+        renter_role=user.renter_role.value if getattr(user, "renter_role", None) else None,
         is_active=user.is_active,
         created_at=user.created_at,
     )

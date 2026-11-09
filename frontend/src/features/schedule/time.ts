@@ -116,6 +116,7 @@ export function isSlotBusy(startsAt: string, endsAt: string, busy: { starts_at: 
 }
 
 export type PeriodMode = "week" | "month";
+export type RenterRole = "permanent" | "temporary";
 
 export function readDefaultPeriod(userId: string): PeriodMode {
   try {
@@ -126,4 +127,51 @@ export function readDefaultPeriod(userId: string): PeriodMode {
 
 export function writeDefaultPeriod(userId: string, mode: PeriodMode): void {
   try { localStorage.setItem(`pear_rent_period_${userId}`, mode); } catch { /* ignore */ }
+}
+
+export const MONTH_GENITIVE_RU = [
+  "января", "февраля", "марта", "апреля", "мая", "июня",
+  "июля", "августа", "сентября", "октября", "ноября", "декабря",
+];
+
+export function monthBounds(d: Date): { first: Date; last: Date } {
+  const y = d.getUTCFullYear();
+  const m = d.getUTCMonth();
+  return {
+    first: new Date(Date.UTC(y, m, 1)),
+    last: new Date(Date.UTC(y, m + 1, 0)),
+  };
+}
+
+export function isSameMonth(a: Date, b: Date): boolean {
+  return a.getUTCFullYear() === b.getUTCFullYear() && a.getUTCMonth() === b.getUTCMonth();
+}
+
+export type RenterBookingStatus = "open" | "wait-date" | "wait-next";
+
+export function renterBookingWindow(role: RenterRole | null, now: Date = new Date()): { from: Date; to: Date } {
+  const { first: fCur, last: lCur } = monthBounds(now);
+  const { last: lNext } = monthBounds(addMonths(now, 1));
+  const to = role === "temporary" && now.getUTCDate() < 15 ? lCur : lNext;
+  return { from: fCur, to };
+}
+
+export function monthBookingStatus(month: Date, role: RenterRole | null, now: Date = new Date()): RenterBookingStatus {
+  const { first: fAnchor } = monthBounds(month);
+  const { to } = renterBookingWindow(role, now);
+  if (fAnchor <= to) return "open";
+  if (role === "temporary" && now.getUTCDate() < 15 && isSameMonth(month, addMonths(now, 1))) {
+    return "wait-date";
+  }
+  return "wait-next";
+}
+
+export function bookingOpenMessage(status: RenterBookingStatus, role: RenterRole | null, month: Date, now: Date = new Date()): string {
+  if (status === "open") return "";
+  if (status === "wait-date") {
+    return `Запись откроется после 15 ${MONTH_GENITIVE_RU[now.getUTCMonth()]}`;
+  }
+  const prev = addMonths(month, -1);
+  const day = role === "temporary" ? 15 : 1;
+  return `Запись откроется с ${day} ${MONTH_GENITIVE_RU[prev.getUTCMonth()]}`;
 }

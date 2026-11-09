@@ -11,6 +11,11 @@ class UserRole(str, enum.Enum):
     renter = "renter"
 
 
+class RenterRole(str, enum.Enum):
+    permanent = "permanent"
+    temporary = "temporary"
+
+
 class User(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     __tablename__ = "users"
     __table_args__ = (
@@ -25,6 +30,10 @@ class User(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     role: Mapped[UserRole] = mapped_column(
         Enum(UserRole, name="user_role", native_enum=False, length=20),
         nullable=False,
+    )
+    renter_role: Mapped[RenterRole | None] = mapped_column(
+        Enum(RenterRole, name="renter_role", native_enum=False, length=20),
+        nullable=True,
     )
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
 
