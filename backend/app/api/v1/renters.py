@@ -23,7 +23,7 @@ from app.services.renters import (
     set_renter_status,
     update_renter,
 )
-from app.services.schedule import shop_tz
+from app.services.schedule import localize_shop, shop_tz
 
 router = APIRouter()
 
@@ -43,12 +43,14 @@ def _renter_out(user: User) -> RenterOut:
 
 
 def _booking_out(booking, viewer: User) -> BookingOut:
+    starts_local = localize_shop(booking.starts_at)
+    ends_local = localize_shop(booking.ends_at)
     return BookingOut(
         id=str(booking.id),
         chair_id=str(booking.chair_id),
         renter_id=str(booking.renter_id),
-        starts_at=booking.starts_at.isoformat(),
-        ends_at=booking.ends_at.isoformat(),
+        starts_at=starts_local.isoformat(),
+        ends_at=ends_local.isoformat(),
         booking_type=booking.booking_type.value,
         duration_hours=booking.duration_hours,
         price_amount=booking.price_amount,
