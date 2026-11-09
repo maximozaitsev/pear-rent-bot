@@ -8,6 +8,8 @@ export function RentersAdmin() {
   const [selected, setSelected] = useState<{ renter: Renter; bookings: Booking[]; stats: RenterPaymentStats } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [editFirst, setEditFirst] = useState("");
+  const [editLast, setEditLast] = useState("");
 
   async function load() {
     setError(null);
@@ -19,6 +21,11 @@ export function RentersAdmin() {
     setError(null);
     try { setSelected(await api.adminRenter(id)); } catch (e) { setError(errorText(e)); }
   }
+  useEffect(() => {
+    setEditFirst(selected?.renter.first_name ?? "");
+    setEditLast(selected?.renter.last_name ?? "");
+  }, [selected?.renter.id]);
+
   async function toggle(r: Renter) {
     setBusy(true);
     try { await api.adminSetRenterStatus(r.id, !r.is_active); haptic("success"); await load(); if (selected?.renter.id === r.id) await open(r.id); }
@@ -29,6 +36,30 @@ export function RentersAdmin() {
   async function setRole(r: Renter, value: string) {
     try { await api.adminSetRenterRole(r.id, value as "permanent" | "temporary"); haptic("success"); await load(); if (selected?.renter.id === r.id) await open(r.id); }
     catch (e) { setError(errorText(e)); }
+  }
+
+  async function saveName() {
+    if (!selected) return;
+    setBusy(true);
+    try {
+      await api.adminUpdateRenter(selected.renter.id, { first_name: editFirst || null, last_name: editLast || null });
+      haptic("success");
+      await load();
+      await open(selected.renter.id);
+    } catch (e) { setError(errorText(e)); }
+    finally { setBusy(false); }
+  }
+
+  async function remove(r: Renter) {
+    if (!window.confirm(`Удалить арендатора "${personName(r)}" вместе со всеми его бронями?`)) return;
+    setBusy(true);
+    try {
+      await api.adminDeleteRenter(r.id);
+      haptic("success");
+      await load();
+      if (selected?.renter.id === r.id) setSelected(null);
+    } catch (e) { setError(errorText(e)); }
+    finally { setBusy(false); }
   }
 
   return (
@@ -59,6 +90,14 @@ export function RentersAdmin() {
           <dl className="kv" style={{ margin: 0 }}>
             <dt>Телефон</dt><dd>{selected.renter.phone ?? "Не указан"}</dd>
             <dt>Username</dt><dd>{selected.renter.username ? `@${selected.renter.username}` : "—"}</dd>
+            <dt>Имя</dt>
+            <dd>
+              <div className="row" style={{ gap: 8, alignItems: "center" }}>
+                <input className="input" value={editFirst} onChange={(e) => setEditFirst(e.target.value)} placeholder="Имя" />
+                <input className="input" value={editLast} onChange={(e) => setEditLast(e.target.value)} placeholder="Фамилия" />
+              </div>
+              <button className="btn btn-sm" style={{ marginTop: 8 }} disabled={busy} onClick={saveName}>{busy ? "Сохранение..." : "Сохранить имя"}</button>
+            </dd>
             <dt>Регистрация</dt><dd>{formatDateDot(selected.renter.created_at)}</dd>
             <dt>Статус</dt><dd><span className={`chip ${selected.renter.is_active ? "ok" : "mute"}`}>{selected.renter.is_active ? "активен" : "неактивен"}</span></dd>
           </dl>
@@ -79,14 +118,19 @@ export function RentersAdmin() {
             <div><div className="muted small">К оплате</div><div style={{ fontWeight: 700, fontSize: "1.1rem" }}>{formatMoney(selected.stats.to_pay)}</div></div>
             <div><div className="muted small">Оплачено всего</div><div style={{ fontWeight: 700, fontSize: "1.1rem" }}>{formatMoney(selected.stats.paid_total)}</div></div>
           </section>
-          <button className={`btn btn-block ${selected.renter.is_active ? "btn-danger" : "btn-primary"}`} disabled={busy} onClick={() => toggle(selected.renter)}>
-            {selected.renter.is_active ? "Деактивировать (запрет новых броней)" : "Активировать"}
-          </button>
-          <p className="muted small">Существующие брони при деактивации не отменяются автоматически.</p>
-          <div className="section-label">Брони</div>
+          <div style={{ display: "flex", gap: 8 }}>
+            <button className={`btn btn-block ${selected.renter.is_active ? "btn-danger" : "btn-primary"}`} disabled={busy} onClick={() => toggle(selected.renter)}>
+              {selected.renter.is_active ? "Деактивировать" : "Активировать"}
+            </button>
+            <button className="btn btn-block btn-danger" disabled={busy} onClick={() => remove(selected.renter)}>Удалить</button>
+          </div>
+          <p className="muted small">При удалении арендатор и все его брони удаляются безвозвратно. При деактивации запрещаются новые брони, но существующие не отменяются автоматически.</p>
+          <div className="section-label">Будущие бронирования</div>
           {selected.bookings.length === 0 && <p className="muted">Броней нет.</p>}
           <ul className="list">
-            {selected.bookings.map((b) => (
+            {selected.bookings
+              .filter((b) => new Date(b.starts_at) >= new Date())
+              .map((b) => (
               <li key={b.id} className="item-plain">
                 <div>
                   <div style={{ fontWeight: 600 }}>{formatDateDot(b.starts_at)} · {formatTime(b.starts_at)}–{formatTime(b.ends_at)}</div>

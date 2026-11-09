@@ -96,3 +96,8 @@ class RenterStatusRequest(BaseModel):
 
 class RenterRoleRequest(BaseModel):
     renter_role: Literal["permanent", "temporary"]
+
+
+class RenterUpdateRequest(BaseModel):
+    first_name: str | None = Field(default=None, min_length=0, max_length=255)
+    last_name: str | None = Field(default=None, min_length=0, max_length=255)

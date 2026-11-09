@@ -7,9 +7,22 @@ from sqlalchemy.orm import Session
 from app.core.auth import require_admin
 from app.core.db import get_db
 from app.models import Booking, PaymentStatus, RenterRole, User
-from app.schemas.admin import RenterOut, RenterPaymentStats, RenterRoleRequest, RenterStatusRequest
+from app.schemas.admin import (
+    RenterOut,
+    RenterPaymentStats,
+    RenterRoleRequest,
+    RenterStatusRequest,
+    RenterUpdateRequest,
+)
 from app.schemas.bookings import BookingOut
-from app.services.renters import get_renter, list_renters, set_renter_role, set_renter_status
+from app.services.renters import (
+    delete_renter,
+    get_renter,
+    list_renters,
+    set_renter_role,
+    set_renter_status,
+    update_renter,
+)
 from app.services.schedule import shop_tz
 
 router = APIRouter()
@@ -105,3 +118,32 @@ def admin_set_renter_role(
             renter_role=RenterRole(payload.renter_role),
         )
     )
+
+
+@router.patch("/admin/renters/{renter_id}", response_model=RenterOut)
+def admin_update_renter(
+    renter_id: uuid.UUID,
+    payload: RenterUpdateRequest,
+    db: Session = Depends(get_db),
+    _admin: User = Depends(require_admin),
+):
+    return _renter_out(
+        update_renter(
+            db,
+            renter_id=renter_id,
+            first_name=payload.first_name,
+            last_name=payload.last_name,
+        )
+    )
+
+
+@router.delete("/admin/renters/{renter_id}", response_model=RenterOut)
+def admin_delete_renter(
+    renter_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    _admin: User = Depends(require_admin),
+):
+    data = get_renter(db, renter_id)
+    out = _renter_out(data["renter"])
+    delete_renter(db, renter_id=renter_id)
+    return out

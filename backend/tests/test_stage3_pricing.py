@@ -12,6 +12,8 @@ from app.services.pricing import calculate_price
         (BookingType.hourly, 3, 2000),
         (BookingType.hourly, 4, 2500),
         (BookingType.hourly, 8, 4500),
+        (BookingType.hourly, 11, 6000),
+        (BookingType.hourly, 12, 6000),
         (BookingType.full_day, 13, 6000),
         ("hourly", 1, 1000),
         ("full_day", 1, 6000),

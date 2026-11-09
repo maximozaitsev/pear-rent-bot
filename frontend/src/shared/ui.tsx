@@ -95,6 +95,28 @@ function renterChairDot(c: ChairDay): string {
   return "cdot f-warn b-none";
 }
 
+export function ChairLegend({ variant }: { variant: DotVariant }) {
+  const items = variant === "admin"
+    ? [
+      { cls: "cdot empty", text: "свободно" },
+      { cls: "cdot b-ok f-none", text: "занято, не оплачено" },
+      { cls: "cdot b-warn f-none", text: "частично, не оплачено" },
+      { cls: "cdot b-ok f-ok", text: "весь день, оплачено" },
+    ]
+    : [
+      { cls: "cdot f-ok b-none", text: "свободно" },
+      { cls: "cdot f-warn b-none", text: "частично свободно" },
+      { cls: "cdot empty", text: "занято" },
+    ];
+  return (
+    <div className="ch-legend" aria-hidden="true">
+      {items.map((it) => (
+        <span key={it.text}><i className={it.cls} />{it.text}</span>
+      ))}
+    </div>
+  );
+}
+
 /* ---------- icons ---------- */
 const ICONS: Record<string, ReactNode> = {
   calendar: <><rect x="3" y="4" width="18" height="18" rx="3" /><path d="M16 2v4M8 2v4M3 10h18" /></>,

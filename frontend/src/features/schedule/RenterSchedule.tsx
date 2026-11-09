@@ -3,7 +3,7 @@ import { api } from "../../api/client";
 import type { ChairDay, DayBooking, DaySchedule } from "../../api/types";
 import { addDays, firstOfMonth, formatMoney, formatTime, monthGridWeeks, type PeriodMode, type RenterRole, renterBookingWindow, monthBookingStatus, bookingOpenMessage, isoDate } from "./time";
 import { ChairPicker } from "./ChairPicker";
-import { Banner, DayStrip, Empty, Icon, MonthGrid, Sheet, WeekNav, dayParts, errorText, haptic, todayIso } from "../../shared/ui";
+import { Banner, ChairLegend, DayStrip, Empty, Icon, MonthGrid, Sheet, WeekNav, dayParts, errorText, haptic, todayIso } from "../../shared/ui";
 
 function todayStart(): Date {
   const n = new Date();
@@ -288,39 +288,43 @@ export function RenterSchedule({
       )}
 
       {mode === "week" && !!weekDays.length && (
-          <DayStrip
-            days={weekDays}
-            selected={selectedDate}
-            onSelect={selectMode ? onDayPick : (d) => setSelectedDate(d.date)}
-            pickedDates={selectMode ? pickedDates : undefined}
-            canPickDate={canPickDate}
-            dotVariant="renter"
-          pickedChairByDate={selectMode ? pickedChairByDate : undefined}
-          renterOwn={selectMode ? undefined : (d) => d.chairs.some((c) => c.bookings.some((b) => b.is_mine))}
-          renterOwnDates={selectMode ? myBookedDates : undefined}
-        />
-      )}
-      {mode === "month" && (
-        <>
-          {monthStatus !== "open" ? (
-            <Empty icon="🔒">{bookingOpenMessage(monthStatus, renterRole ?? null, monthAnchor, now)}</Empty>
-          ) : (
-            <MonthGrid
-              month={monthAnchor}
-              daysByDate={monthDays}
+          <>
+            <DayStrip
+              days={weekDays}
               selected={selectedDate}
               onSelect={selectMode ? onDayPick : (d) => setSelectedDate(d.date)}
-              loading={loading}
               pickedDates={selectMode ? pickedDates : undefined}
               canPickDate={canPickDate}
               dotVariant="renter"
-              pickedChairByDate={selectMode ? pickedChairByDate : undefined}
-              renterOwn={selectMode ? undefined : (d) => d.chairs.some((c) => c.bookings.some((b) => b.is_mine))}
-              renterOwnDates={selectMode ? myBookedDates : undefined}
-            />
-          )}
-        </>
-      )}
+            pickedChairByDate={selectMode ? pickedChairByDate : undefined}
+            renterOwn={selectMode ? undefined : (d) => d.chairs.some((c) => c.bookings.some((b) => b.is_mine))}
+            renterOwnDates={selectMode ? myBookedDates : undefined}
+          />
+          <ChairLegend variant="renter" />
+          </>
+        )}
+        {mode === "month" && (
+          <>
+            {monthStatus !== "open" ? (
+              <Empty icon="🔒">{bookingOpenMessage(monthStatus, renterRole ?? null, monthAnchor, now)}</Empty>
+            ) : (
+              <MonthGrid
+                month={monthAnchor}
+                daysByDate={monthDays}
+                selected={selectedDate}
+                onSelect={selectMode ? onDayPick : (d) => setSelectedDate(d.date)}
+                loading={loading}
+                pickedDates={selectMode ? pickedDates : undefined}
+                canPickDate={canPickDate}
+                dotVariant="renter"
+                pickedChairByDate={selectMode ? pickedChairByDate : undefined}
+                renterOwn={selectMode ? undefined : (d) => d.chairs.some((c) => c.bookings.some((b) => b.is_mine))}
+                renterOwnDates={selectMode ? myBookedDates : undefined}
+              />
+            )}
+            <ChairLegend variant="renter" />
+          </>
+        )}
 
       {selectMode && (
         <section className="card stack">
@@ -370,7 +374,7 @@ export function RenterSchedule({
         </section>
       )}
 
-      {selectedDay && !selectMode && (
+      {selectedDay && !selectMode && monthStatus === "open" && (
         <>
           <div className="section-label">{dayParts(selectedDay.date).long}</div>
           {!selectedDay.working_hours.is_open ? (

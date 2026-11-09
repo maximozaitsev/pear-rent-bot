@@ -174,8 +174,6 @@ button.item:active:not(:disabled) { background: var(--soft); }
 .legend i { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 5px; vertical-align: -1px; }
 .ch-legend { display: flex; flex-wrap: wrap; gap: 10px; font-size: 0.76rem; color: var(--hint); margin: 8px 2px 4px; }
 .ch-legend i { display: inline-block; width: 9px; height: 9px; min-width: 9px; min-height: 9px; max-width: 9px; max-height: 9px; border-radius: 50%; margin-right: 5px; vertical-align: -1px; box-sizing: border-box; }
-.ch-legend { display: flex; flex-wrap: wrap; gap: 10px; font-size: 0.76rem; color: var(--hint); }
-.ch-legend i { display: inline-block; width: 9px; height: 9px; min-width: 9px; border-radius: 50%; margin-right: 5px; vertical-align: -1px; box-sizing: border-box; }
 
 /* ---------- segmented ---------- */
 .segmented { display: flex; padding: 3px; border-radius: calc(var(--r) - 2px); background: var(--soft); gap: 2px; }

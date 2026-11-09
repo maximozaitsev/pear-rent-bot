@@ -8,4 +8,5 @@ def calculate_price(booking_type: BookingType | str, duration_hours: int) -> int
         return 6000
     if duration_hours < 1:
         raise ValueError("Duration must be at least one hour")
-    return 1000 + 500 * (duration_hours - 1)
+    price = 1000 + 500 * (duration_hours - 1)
+    return min(price, 6000)

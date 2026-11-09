@@ -61,10 +61,20 @@ export function formatDateRu(iso: string): string {
   return d.toLocaleDateString("ru-RU", { weekday: "short", day: "numeric", month: "short", timeZone: "UTC" });
 }
 
+const SHOP_TZ = "Europe/Minsk";
+
+function shopParts(iso: string, fields: Intl.DateTimeFormatOptions): Map<string, string> {
+  const s = iso.includes("T") ? iso : `${iso}T00:00:00Z`;
+  const d = new Date(s);
+  const parts = new Intl.DateTimeFormat("ru-RU", { timeZone: SHOP_TZ, ...fields }).formatToParts(d);
+  const m = new Map<string, string>();
+  for (const p of parts) if (p.type !== "literal") m.set(p.type, p.value);
+  return m;
+}
+
 export function formatDateDot(iso: string): string {
-  const d = iso.slice(0, 10);
-  const [y, m, day] = d.split("-");
-  return y && m && day ? `${day}.${m}.${y}` : d;
+  const p = shopParts(iso, { day: "2-digit", month: "2-digit", year: "numeric" });
+  return `${p.get("day")}.${p.get("month")}.${p.get("year")}`;
 }
 
 export function formatDateTimeDot(iso: string): string {
@@ -73,7 +83,8 @@ export function formatDateTimeDot(iso: string): string {
 }
 
 export function formatTime(iso: string): string {
-  return iso.includes("T") ? iso.slice(11, 16) : iso.slice(0, 5);
+  const p = shopParts(iso, { hour: "2-digit", minute: "2-digit", hour12: false });
+  return `${p.get("hour")}:${p.get("minute")}`;
 }
 
 export function formatMoney(kopeks: number, currency = "BYN"): string {
@@ -82,7 +93,7 @@ export function formatMoney(kopeks: number, currency = "BYN"): string {
 
 export function calcHourlyPrice(hours: number): number {
   if (hours < 1) return 0;
-  return 1000 + 500 * (hours - 1);
+  return Math.min(1000 + 500 * (hours - 1), 6000);
 }
 
 export interface DayGroup<T> {

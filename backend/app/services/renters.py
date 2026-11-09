@@ -1,10 +1,10 @@
 import uuid
 
 from fastapi import HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
-from app.models import Booking, RenterRole, User, UserRole
+from app.models import Booking, NotificationLog, RenterRole, User, UserRole
 
 
 def list_renters(db: Session) -> list[User]:
@@ -23,10 +23,36 @@ def get_renter(db: Session, renter_id: uuid.UUID) -> dict:
         db.scalars(
             select(Booking)
             .where(Booking.renter_id == renter_id)
-            .order_by(Booking.starts_at.desc())
+            .order_by(Booking.starts_at.asc())
         )
     )
     return {"renter": renter, "bookings": bookings}
+
+
+def update_renter(
+    db: Session, *, renter_id: uuid.UUID, first_name: str | None, last_name: str | None
+) -> User:
+    renter = db.scalar(select(User).where(User.id == renter_id, User.role == UserRole.renter))
+    if renter is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Renter not found")
+    renter.first_name = first_name
+    renter.last_name = last_name
+    db.commit()
+    db.refresh(renter)
+    return renter
+
+
+def delete_renter(db: Session, *, renter_id: uuid.UUID) -> User:
+    renter = db.scalar(select(User).where(User.id == renter_id, User.role == UserRole.renter))
+    if renter is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Renter not found")
+    booking_ids = list(db.scalars(select(Booking.id).where(Booking.renter_id == renter_id)))
+    if booking_ids:
+        db.execute(delete(NotificationLog).where(NotificationLog.booking_id.in_(booking_ids)))
+        db.execute(delete(Booking).where(Booking.renter_id == renter_id))
+    db.delete(renter)
+    db.commit()
+    return renter
 
 
 def set_renter_status(db: Session, *, renter_id: uuid.UUID, is_active: bool) -> User:

@@ -132,6 +132,9 @@ export const api = {
     request<Renter>(`/admin/renters/${id}/status`, { method: "PATCH", body: JSON.stringify({ is_active }) }),
   adminSetRenterRole: (id: string, renter_role: "permanent" | "temporary") =>
     request<Renter>(`/admin/renters/${id}/role`, { method: "PATCH", body: JSON.stringify({ renter_role }) }),
+  adminUpdateRenter: (id: string, payload: { first_name?: string | null; last_name?: string | null }) =>
+    request<Renter>(`/admin/renters/${id}`, { method: "PATCH", body: JSON.stringify(payload) }),
+  adminDeleteRenter: (id: string) => request<void>(`/admin/renters/${id}`, { method: "DELETE" }),
 
   adminInvitations: () => request<Invitation[]>("/admin/invitations"),
   adminCreateInvitation: () => request<Invitation>("/admin/invitations", { method: "POST" }),

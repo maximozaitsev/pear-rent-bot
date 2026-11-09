@@ -4,7 +4,7 @@ import type { Booking, ChairDay, DaySchedule, Renter } from "../../api/types";
 import { addDays, firstOfMonth, formatMoney, formatTime, groupByDay, isoDate, mondayOf, monthGridWeeks } from "../schedule/time";
 import { BookingCard } from "./BookingCard";
 import { ChairPicker } from "../schedule/ChairPicker";
-import { Banner, DayStrip, Empty, Icon, MonthGrid, Sheet, WeekNav, dayParts, errorText, haptic, personName, todayIso, type PeriodMode } from "../../shared/ui";
+import { Banner, ChairLegend, DayStrip, Empty, Icon, MonthGrid, Sheet, WeekNav, dayParts, errorText, haptic, personName, todayIso, type PeriodMode } from "../../shared/ui";
 
 type DB = ChairDay["bookings"][number];
 
@@ -106,8 +106,10 @@ export function AdminCalendar({ defaultMode }: { defaultMode?: PeriodMode }) {
         const weeks = monthGridWeeks(monthAnchor);
         const from = weeks[0][0].date;
         const to = weeks[weeks.length - 1][6].date;
-        const a = await api.scheduleAvailability(from, addDays(new Date(from + "T00:00:00Z"), 30).toISOString().slice(0, 10));
-        const b = await api.scheduleAvailability(addDays(new Date(from + "T00:00:00Z"), 31).toISOString().slice(0, 10), to);
+        const fromPlus30 = addDays(new Date(from + "T00:00:00Z"), 30).toISOString().slice(0, 10);
+        const fromPlus31 = addDays(new Date(from + "T00:00:00Z"), 31).toISOString().slice(0, 10);
+        const a = await api.scheduleAvailability(from, fromPlus30);
+        const b = fromPlus31 <= to ? await api.scheduleAvailability(fromPlus31, to) : { days: [] as DaySchedule[] };
         const map: Record<string, DaySchedule> = {};
         for (const d of [...a.days, ...b.days]) map[d.date] = d;
         setMonthDays(map);
@@ -213,11 +215,16 @@ export function AdminCalendar({ defaultMode }: { defaultMode?: PeriodMode }) {
 
       {(mode === "week" ? !!days.length : Object.keys(monthDays).length > 0 || !loading) && (
         <>
-          {mode === "week" ? (
-            <DayStrip days={days} selected={selectedDate} onSelect={(d) => setSelectedDate(d.date)} counts={counts} dotVariant="admin" />
+{mode === "week" ? (
+            <>
+              <DayStrip days={days} selected={selectedDate} onSelect={(d) => setSelectedDate(d.date)} counts={counts} dotVariant="admin" />
+            </>
           ) : (
-            <MonthGrid month={monthAnchor} daysByDate={monthDays} selected={selectedDate} onSelect={(d) => setSelectedDate(d.date)} loading={loading} dotVariant="admin" />
+            <>
+              <MonthGrid month={monthAnchor} daysByDate={monthDays} selected={selectedDate} onSelect={(d) => setSelectedDate(d.date)} loading={loading} dotVariant="admin" />
+            </>
           )}
+          <ChairLegend variant="admin" />
 
           {selectedDay && (
             <>

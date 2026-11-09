@@ -29,7 +29,9 @@ function NearestBooking({ refreshKey }: { refreshKey: number }) {
     api
       .myBookings()
       .then((items) => {
-        const grouped = groupByDay(items);
+        const now = new Date();
+        const upcoming = items.filter((b) => new Date(b.starts_at) > now);
+        const grouped = groupByDay(upcoming);
         if (alive) setDayBookings(grouped.length ? grouped[0].bookings : null);
       })
       .catch(() => {
