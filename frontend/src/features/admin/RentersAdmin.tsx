@@ -11,6 +11,35 @@ export function RentersAdmin() {
   const [editFirst, setEditFirst] = useState("");
   const [editLast, setEditLast] = useState("");
 
+  function groupBookings(bookings: Booking[]) {
+    const byKey = new Map<string, Booking[]>();
+    for (const b of bookings) {
+      if (b.status !== "active") continue;
+      const day = b.starts_at.slice(0, 10);
+      const key = `${day}::${b.chair_id}`;
+      const arr = byKey.get(key) ?? [];
+      arr.push(b);
+      byKey.set(key, arr);
+    }
+    const result: { day: string; chair_id: string; bookings: Booking[]; merged: boolean; totalPrice: number; totalHours: number; start: string; end: string }[] = [];
+    for (const [key, bs] of byKey.entries()) {
+      const [day, chair_id] = key.split("::");
+      const hourly = bs.filter((b) => b.booking_type === "hourly");
+      const fullDay = bs.filter((b) => b.booking_type === "full_day");
+      for (const b of fullDay) {
+        result.push({ day, chair_id, bookings: [b], merged: false, totalPrice: b.price_amount ?? 0, totalHours: b.duration_hours, start: b.starts_at.slice(11, 16), end: b.ends_at.slice(11, 16) });
+      }
+      if (hourly.length === 0) continue;
+      const sorted = [...hourly].sort((a, b) => a.starts_at.localeCompare(b.starts_at));
+      const totalPrice = sorted.reduce((s, b) => s + (b.price_amount ?? 0), 0);
+      const totalHours = sorted.reduce((s, b) => s + b.duration_hours, 0);
+      const start = sorted[0].starts_at.slice(11, 16);
+      const end = sorted[sorted.length - 1].ends_at.slice(11, 16);
+      result.push({ day, chair_id, bookings: sorted, merged: hourly.length > 1, totalPrice, totalHours, start, end });
+    }
+    return result.sort((a, b) => a.day.localeCompare(b.day) || a.start.localeCompare(b.start));
+  }
+
   async function load() {
     setError(null);
     try { setItems(await api.adminRenters()); } catch (e) { setError(errorText(e)); }
@@ -128,15 +157,19 @@ export function RentersAdmin() {
           <div className="section-label">Будущие бронирования</div>
           {selected.bookings.length === 0 && <p className="muted">Броней нет.</p>}
           <ul className="list">
-            {selected.bookings
-              .filter((b) => new Date(b.starts_at) >= new Date())
-              .map((b) => (
-              <li key={b.id} className="item-plain">
+            {groupBookings(selected.bookings)
+              .filter((g) => new Date(`${g.day}T${g.start}`) >= new Date())
+              .map((g) => (
+              <li key={`${g.day}::${g.chair_id}::${g.start}`} className="item-plain">
                 <div>
-                  <div style={{ fontWeight: 600 }}>{formatDateDot(b.starts_at)} · {formatTime(b.starts_at)}–{formatTime(b.ends_at)}</div>
-                  <div className="muted small">{formatMoney(b.price_amount, b.currency)} · {b.status}</div>
+                  <div style={{ fontWeight: 600 }}>{formatDateDot(g.day)} · {g.start}–{g.end}{g.merged ? ` (${g.totalHours} ч)` : ""}</div>
+                  <div className="muted small">{formatMoney(g.totalPrice, selected.bookings[0]?.currency ?? "BYN")} · {g.bookings.map((b) => b.status).join(", ")}{g.merged ? ` · ${g.bookings.length} записи` : ""}</div>
                 </div>
-                <span className={`chip ${b.payment_status === "paid" ? "ok" : "warn"}`}>{b.payment_status === "paid" ? "оплачено" : "не оплачено"}</span>
+                {g.bookings.some((b) => b.payment_status === "paid") && g.bookings.every((b) => b.payment_status === "paid") ? (
+                  <span className="chip ok">оплачено</span>
+                ) : (
+                  <span className="chip warn">не оплачено</span>
+                )}
               </li>
             ))}
           </ul>

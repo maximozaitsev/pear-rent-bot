@@ -136,6 +136,7 @@ def create_booking(
     ends_local = localize_shop(ends_at)
     span_seconds = (ends_local - starts_local).total_seconds()
     duration_hours = int(span_seconds // 3600)
+    btype = BookingType(booking_type) if isinstance(booking_type, str) else booking_type
 
     # Server-side validation and transactional protection against double booking.
     try:
@@ -167,7 +168,29 @@ def create_booking(
             _assert_no_overlap(db, chair_id=chair_id, starts_at=starts_at, ends_at=ends_at)
 
             if price_amount is None:
-                price_amount = calculate_price(booking_type, duration_hours)
+                if btype == BookingType.hourly:
+                    # Charge the "first hour" only once per day per renter/chair.
+                    # Sum already-active hourly bookings on this chair/day so the
+                    # total day price is calcHourlyPrice(total_hours), then bill only
+                    # the difference for the new slice.
+                    day = starts_local.date()
+                    existing = db.scalars(
+                        select(Booking).where(
+                            Booking.chair_id == chair_id,
+                            Booking.renter_id == renter.id,
+                            Booking.status == BookingStatus.active,
+                        )
+                    ).all()
+                    existing_hours = 0
+                    existing_price = 0
+                    for b in existing:
+                        if localize_shop(b.starts_at).date() == day:
+                            existing_hours += b.duration_hours
+                            existing_price += b.price_amount
+                    total_hours = existing_hours + duration_hours
+                    price_amount = max(0, calculate_price(BookingType.hourly, total_hours) - existing_price)
+                else:
+                    price_amount = calculate_price(booking_type, duration_hours)
 
             booking = Booking(
                 chair_id=chair_id,

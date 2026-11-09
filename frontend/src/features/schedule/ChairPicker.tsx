@@ -138,7 +138,21 @@ export function ChairPicker({
   }, [chair, editMode]);
   const hasChanges = !editMode || mode !== "hourly" || selectedHours.length !== originalSlots.length || selectedHours.some((s) => !originalSlots.includes(s));
   const groups = useMemo(() => groupHourIntervals(selectedHours), [selectedHours]);
-  const price = mode === "full_day" ? 6000 : groups.reduce((sum, g) => sum + calcHourlyPrice(g.hours), 0);
+  // Existing active hourly bookings by this renter on this chair/day, so the
+  // "first hour" is charged only once per day (mirrors the server-side calc).
+  const ownedHourly = useMemo(() => {
+    let hours = 0;
+    let price = 0;
+    for (const b of chair.bookings) {
+      if (b.is_mine && b.status === "active" && b.booking_type === "hourly") {
+        hours += b.duration_hours;
+        price += b.price_amount ?? 0;
+      }
+    }
+    return { hours, price };
+  }, [chair.bookings]);
+  const newHours = selectedHours.length;
+  const price = mode === "full_day" ? 6000 : Math.max(0, calcHourlyPrice(ownedHourly.hours + newHours) - ownedHourly.price);
   const canSubmit = (allowPast || !isPast) && !busy && (mode === "hourly" ? (allFree || selectedHours.length === 0) && hasChanges : canFullDay) && (!editMode || hasChanges);
 
   async function submit() {
