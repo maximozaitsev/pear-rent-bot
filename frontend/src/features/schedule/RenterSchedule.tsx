@@ -150,9 +150,9 @@ export function RenterSchedule({
     return m;
   }, [picked]);
 
-  function resolvePick(d: DaySchedule): PickedDay | null {
+  function resolvePick(d: DaySchedule, selectMode: boolean): PickedDay | null {
     if (d.date < today || !d.working_hours.is_open) return null;
-    if (myBookedDates.has(d.date)) return null;
+    if (selectMode && myBookedDates.has(d.date)) return null;
     if (targetChairId) {
       const target = d.chairs.find((c) => c.chair_id === targetChairId);
       if ((target?.can_book_full_day ?? target?.is_free_whole_day) && targetChair) return { date: d.date, chairId: targetChairId, chairName: targetChair.name, isAlt: false };
@@ -165,7 +165,8 @@ export function RenterSchedule({
   }
 
   function isDayBookable(d: DaySchedule): boolean {
-    return !!resolvePick(d);
+    if (!selectMode) return true;
+    return !!resolvePick(d, selectMode);
   }
 
   function dateEnabled(d: DaySchedule): boolean {
@@ -193,7 +194,7 @@ export function RenterSchedule({
 
   function onDayPick(d: DaySchedule) {
     if (selectMode) {
-      const resolved = resolvePick(d);
+      const resolved = resolvePick(d, selectMode);
       if (!resolved) return;
       haptic();
       setError(null); setBookingReport(null);

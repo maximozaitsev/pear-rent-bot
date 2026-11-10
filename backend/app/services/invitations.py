@@ -5,7 +5,7 @@ from fastapi import HTTPException, status
 from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
-from app.models import Invitation, InvitationStatus, User, UserRole
+from app.models import Invitation, InvitationStatus, RenterRole, User, UserRole
 
 
 def create_invitation(db: Session, *, created_by: User) -> tuple[Invitation, str]:
@@ -91,6 +91,7 @@ def register_renter_with_invite(
             first_name=first_name,
             last_name=last_name,
             role=UserRole.renter,
+            renter_role=RenterRole.permanent,
             is_active=True,
         )
         db.add(user)
