@@ -158,7 +158,12 @@ export function RentersAdmin() {
           {selected.bookings.length === 0 && <p className="muted">Броней нет.</p>}
           <ul className="list">
             {groupBookings(selected.bookings)
-              .filter((g) => new Date(`${g.day}T${g.start}`) >= new Date())
+              .filter((g) => {
+                const starts = new Date(`${g.day}T${g.start}`);
+                const isFuture = starts >= new Date();
+                const hasDebt = g.bookings.some((b) => b.payment_status !== "paid");
+                return isFuture || hasDebt;
+              })
               .map((g) => (
               <li key={`${g.day}::${g.chair_id}::${g.start}`} className="item-plain">
                 <div>

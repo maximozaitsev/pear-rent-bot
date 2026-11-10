@@ -1,10 +1,10 @@
 import uuid
 
 from fastapi import HTTPException, status
-from sqlalchemy import delete, select
+from sqlalchemy import delete, select, update
 from sqlalchemy.orm import Session
 
-from app.models import Booking, NotificationLog, RenterRole, User, UserRole
+from app.models import Booking, Invitation, NotificationLog, RenterRole, User, UserRole
 
 
 def list_renters(db: Session) -> list[User]:
@@ -50,6 +50,11 @@ def delete_renter(db: Session, *, renter_id: uuid.UUID) -> User:
     if booking_ids:
         db.execute(delete(NotificationLog).where(NotificationLog.booking_id.in_(booking_ids)))
         db.execute(delete(Booking).where(Booking.renter_id == renter_id))
+    db.execute(
+        update(Invitation)
+        .where(Invitation.used_by == renter_id)
+        .values(used_by=None)
+    )
     db.delete(renter)
     db.commit()
     return renter
