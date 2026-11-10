@@ -21,6 +21,9 @@ export function MyBookings({ onChanged }: { onChanged?: () => void }) {
   const [error, setError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
 
+  const SHOP_TZ = "Europe/Minsk";
+  const shopToday = () => new Date().toLocaleDateString("en-CA", { timeZone: SHOP_TZ });
+
   async function load() {
     setError(null);
     try { setItems(await api.myBookings()); }
@@ -86,6 +89,7 @@ export function MyBookings({ onChanged }: { onChanged?: () => void }) {
         {groups.map((g) => {
           const p = dayParts(g.date);
           const busy = busyId === g.ids[0];
+          const isPast = g.date < shopToday();
           return (
             <li key={g.date} className="item">
               <div className="date-badge"><b>{p.num}</b><span>{p.mon}</span></div>
@@ -93,7 +97,12 @@ export function MyBookings({ onChanged }: { onChanged?: () => void }) {
                 <div className="title">{g.intervals}</div>
                 <div className="meta">{g.bookings[0].booking_type === "full_day" ? "Весь день" : `${g.hours} ч`} · {formatMoney(g.price, g.bookings[0].currency)}</div>
               </div>
-              <button className="btn btn-sm btn-danger" disabled={busy} onClick={() => cancelDay(g.ids)}>
+              <button
+                className="btn btn-sm btn-danger"
+                disabled={busy || isPast}
+                onClick={() => cancelDay(g.ids)}
+                title={isPast ? "Нельзя отменить прошедшее бронирование" : undefined}
+              >
                 {busy ? "..." : "Отменить день"}
               </button>
             </li>

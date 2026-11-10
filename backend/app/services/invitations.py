@@ -91,7 +91,7 @@ def register_renter_with_invite(
             first_name=first_name,
             last_name=last_name,
             role=UserRole.renter,
-            renter_role=RenterRole.permanent,
+            renter_role=RenterRole.temporary,
             is_active=True,
         )
         db.add(user)
