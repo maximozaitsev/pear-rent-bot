@@ -60,6 +60,8 @@ class BulkBookingItemRequest(BaseModel):
 
 class BulkBookingCreateRequest(BaseModel):
     items: list[BulkBookingItemRequest] = Field(min_length=1, max_length=100)
+    # Renter edit: these own bookings are cancelled in the same transaction as items are created.
+    replace_booking_ids: list[uuid.UUID] = Field(default_factory=list, max_length=100)
 
 
 class AdminBulkBookingCreateRequest(BaseModel):

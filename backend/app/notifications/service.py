@@ -25,6 +25,8 @@ EVENT_BOOKING_CANCELLED_BY_RENTER_ADMIN = "booking_cancelled_by_renter_admin"
 EVENT_BOOKING_CANCELLED_BY_ADMIN_RENTER = "booking_cancelled_by_admin_renter"
 EVENT_BOOKING_CREATED_BULK_RENTER = "booking_created_bulk_renter"
 EVENT_BOOKING_CREATED_BULK_ADMIN = "booking_created_bulk_admin"
+EVENT_BOOKING_REPLACED_RENTER = "booking_replaced_renter"
+EVENT_BOOKING_REPLACED_ADMIN = "booking_replaced_admin"
 
 
 def _money(amount_kopeks: int, currency: str) -> str:
@@ -249,9 +251,10 @@ def _dispatch_events(
         db.close()
 
 
-def _build_bulk_created_messages(
-    *, recipient: str, bookings: list[Booking], chair_names: dict[uuid.UUID, str], renter_name: str
-) -> str:
+def _bookings_summary(
+    bookings: list[Booking], chair_names: dict[uuid.UUID, str]
+) -> tuple[str, int, int]:
+    """Lines grouped by day+chair, total amount, number of groups."""
     by_day_chair: dict[tuple[str, uuid.UUID], list[Booking]] = {}
     for b in sorted(bookings, key=lambda x: (x.starts_at, x.id)):
         key = (_fmt_date(b.starts_at), b.chair_id)
@@ -267,8 +270,14 @@ def _build_bulk_created_messages(
             f"{_fmt_time(i.starts_at)}-{_fmt_time(i.ends_at)}" for i in sorted(items, key=lambda x: x.starts_at)
         )
         lines.append(f"• <b>{day}</b> — {chairs} · {intervals} · <b>{_money(day_total, currency)}</b>")
-    summary = "\n".join(lines)
-    total_s = _money(total, currency)
+    return "\n".join(lines), total, len(by_day_chair)
+
+
+def _build_bulk_created_messages(
+    *, recipient: str, bookings: list[Booking], chair_names: dict[uuid.UUID, str], renter_name: str
+) -> str:
+    summary, total, groups = _bookings_summary(bookings, chair_names)
+    total_s = _money(total, bookings[0].currency if bookings else "BYN")
     if recipient == "renter":
         return (
             "✅ <b>Бронирования подтверждены</b>\n\n"
@@ -279,7 +288,7 @@ def _build_bulk_created_messages(
     return (
         "🆕 <b>Новые бронирования</b> <i>(массовый выбор)</i>\n\n"
         f"👤 <b>Арендатор:</b> {_esc(renter_name)}\n"
-        f"📦 <b>Количество:</b> {len(by_day_chair)}\n"
+        f"📦 <b>Количество:</b> {groups}\n"
         f"{summary}\n\n"
         f"💳 <b>Итого:</b> <b>{total_s}</b>"
     )
@@ -427,3 +436,85 @@ def notify_booking_cancelled(*, booking_id: uuid.UUID, actor_id: uuid.UUID) -> N
             )
     except Exception:
         logger.exception("notify_booking_cancelled failed booking=%s", booking_id)
+
+
+def _build_replaced_messages(
+    *,
+    recipient: str,
+    old: list[Booking],
+    new: list[Booking],
+    chair_names: dict[uuid.UUID, str],
+    renter_name: str,
+) -> str:
+    new_summary, total, _ = _bookings_summary(new, chair_names)
+    total_s = _money(total, new[0].currency if new else "BYN")
+    if recipient == "renter":
+        return (
+            "✏️ <b>Бронирование изменено</b>\n\n"
+            f"{new_summary}\n\n"
+            f"💳 <b>Итого к оплате:</b> <b>{total_s}</b>"
+        )
+    old_summary, _, _ = _bookings_summary(old, chair_names)
+    return (
+        "✏️ <b>Бронь изменена арендатором</b>\n\n"
+        f"👤 <b>Арендатор:</b> {_esc(renter_name)}\n\n"
+        f"<b>Было:</b>\n{old_summary}\n\n"
+        f"<b>Стало:</b>\n{new_summary}\n\n"
+        f"💳 <b>Итого:</b> <b>{total_s}</b>"
+    )
+
+
+def notify_bookings_replaced(
+    *, old_ids: list[uuid.UUID], new_ids: list[uuid.UUID], actor_id: uuid.UUID
+) -> None:
+    """One notification per recipient when a renter edits a day instead of cancel + create."""
+    if not new_ids:
+        return
+    try:
+        db = SessionLocal()
+        try:
+            old = list(db.scalars(select(Booking).where(Booking.id.in_(old_ids))))
+            new = list(db.scalars(select(Booking).where(Booking.id.in_(new_ids))))
+            if not new:
+                return
+            renter = db.get(User, new[0].renter_id)
+            renter_id = _notifiable_renter_id(renter)
+            admin_ids = [a.id for a in _admin_recipients(db) if a.id != actor_id]
+            chair_ids = {b.chair_id for b in old + new}
+            chairs = list(db.scalars(select(Chair).where(Chair.id.in_(chair_ids))))
+            chair_names = {c.id: c.name for c in chairs}
+            renter_name = _renter_label(renter) if renter else str(new[0].renter_id)
+        finally:
+            db.close()
+
+        anchor = sorted(new, key=lambda b: (b.starts_at, b.id))[0].id
+        if renter_id is not None:
+            text = _build_replaced_messages(
+                recipient="renter",
+                old=old,
+                new=new,
+                chair_names=chair_names,
+                renter_name=renter_name,
+            )
+            _dispatch_text_event(
+                event_type=EVENT_BOOKING_REPLACED_RENTER,
+                booking_id=anchor,
+                recipient_ids=[renter_id],
+                text=text,
+            )
+        if admin_ids:
+            text = _build_replaced_messages(
+                recipient="admin",
+                old=old,
+                new=new,
+                chair_names=chair_names,
+                renter_name=renter_name,
+            )
+            _dispatch_text_event(
+                event_type=EVENT_BOOKING_REPLACED_ADMIN,
+                booking_id=anchor,
+                recipient_ids=admin_ids,
+                text=text,
+            )
+    except Exception:
+        logger.exception("notify_bookings_replaced failed count=%s", len(new_ids))

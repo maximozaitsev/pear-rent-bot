@@ -107,8 +107,8 @@ export const api = {
     ends_at: string;
     booking_type: "hourly" | "full_day";
   }) => request<Booking>("/bookings", { method: "POST", body: JSON.stringify(payload) }),
-  createBookingsBulk: (items: Array<{ chair_id: string; starts_at: string; ends_at: string; booking_type: "hourly" | "full_day" }>) =>
-    request<BulkBookingResponse>("/bookings/bulk", { method: "POST", body: JSON.stringify({ items }) }),
+  createBookingsBulk: (items: Array<{ chair_id: string; starts_at: string; ends_at: string; booking_type: "hourly" | "full_day" }>, replaceBookingIds: string[] = []) =>
+    request<BulkBookingResponse>("/bookings/bulk", { method: "POST", body: JSON.stringify(replaceBookingIds.length ? { items, replace_booking_ids: replaceBookingIds } : { items }) }),
   myBookings: () => request<Booking[]>("/bookings/my"),
   cancelBooking: (id: string, reason?: string) =>
     request<Booking>(`/bookings/${id}/cancel`, { method: "POST", body: JSON.stringify({ reason }) }),

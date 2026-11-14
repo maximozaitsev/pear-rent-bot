@@ -132,6 +132,7 @@ def create_booking(
     renter_name: str | None = None,
     price_amount: int | None = None,
     allow_past: bool = False,
+    commit: bool = True,
 ) -> Booking:
     starts_local = localize_shop(starts_at)
     ends_local = localize_shop(ends_at)
@@ -210,9 +211,10 @@ def create_booking(
             db.add(booking)
             db.flush()
         # Persist for request-scoped sessions (autobegin leaves an outer transaction open).
-        if not started_outer and db.in_transaction():
+        if commit and not started_outer and db.in_transaction():
             db.commit()
-        db.refresh(booking)
+        if commit:
+            db.refresh(booking)
         return booking
     except IntegrityError as exc:
         db.rollback()
@@ -253,6 +255,63 @@ def create_bookings_bulk(
             db.rollback()
             failures.append({"chair_id": item["chair_id"], "starts_at": item["starts_at"], "error": "Ошибка бронирования"})
     return created, failures
+
+
+def replace_bookings(
+    db: Session, *, actor: User, booking_ids: list[uuid.UUID], items: list[dict]
+) -> tuple[list[Booking], list[dict], list[Booking]]:
+    """Atomically cancel the renter's own bookings and create new ones.
+
+    Either everything is applied, or nothing changes and the first failure is returned.
+    """
+    ids = set(booking_ids)
+    old = list(db.scalars(select(Booking).where(Booking.id.in_(ids))))
+    if len(old) != len(ids) or any(b.renter_id != actor.id for b in old):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Booking not found")
+    today = datetime.now(shop_tz()).date()
+    for b in old:
+        if b.status != BookingStatus.active:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT, detail="Booking cannot be cancelled"
+            )
+        if localize_shop(b.starts_at).date() < today:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT, detail="Past bookings cannot be cancelled"
+            )
+
+    savepoint = db.begin_nested()
+    created: list[Booking] = []
+    try:
+        now = datetime.now(UTC)
+        for b in old:
+            b.status = BookingStatus.cancelled
+            b.cancelled_by = actor.id
+            b.cancelled_at = now
+        db.flush()
+        for item in items:
+            created.append(
+                create_booking(
+                    db,
+                    actor=actor,
+                    chair_id=item["chair_id"],
+                    starts_at=item["starts_at"],
+                    ends_at=item["ends_at"],
+                    booking_type=item["booking_type"],
+                    commit=False,
+                )
+            )
+    except HTTPException as exc:
+        if savepoint.is_active:
+            savepoint.rollback()
+        detail = exc.detail if isinstance(exc.detail, str) else "Ошибка бронирования"
+        failed = items[len(created)]
+        failure = {"chair_id": failed["chair_id"], "starts_at": failed["starts_at"], "error": detail}
+        return [], [failure], []
+    savepoint.commit()
+    db.commit()
+    for b in created:
+        db.refresh(b)
+    return created, [], old
 
 
 def cancel_booking(

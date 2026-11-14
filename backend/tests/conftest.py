@@ -56,6 +56,7 @@ def _disable_telegram_bot(monkeypatch):
     monkeypatch.setattr(bookings_api, "notify_booking_cancelled", lambda **_: None)
     if hasattr(bookings_api, "notify_bulk_bookings_created"):
         monkeypatch.setattr(bookings_api, "notify_bulk_bookings_created", lambda **_: None)
+    monkeypatch.setattr(bookings_api, "notify_bookings_replaced", lambda **_: None)
 
 
 

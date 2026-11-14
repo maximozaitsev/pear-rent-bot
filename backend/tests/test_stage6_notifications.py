@@ -29,6 +29,7 @@ from app.notifications import service as notifications_service
 _REAL_NOTIFY_CREATED = notifications_service.notify_booking_created
 _REAL_NOTIFY_CANCELLED = notifications_service.notify_booking_cancelled
 _REAL_NOTIFY_BULK = notifications_service.notify_bulk_bookings_created
+_REAL_NOTIFY_REPLACED = notifications_service.notify_bookings_replaced
 
 
 def _day(offset: int) -> str:
@@ -261,6 +262,71 @@ def test_bulk_notifications_skip_technical_renter(monkeypatch):
 
         sent_to = {call.kwargs["chat_id"] for call in bot.send_message.await_args_list}
         assert sent_to == {admin.telegram_id}
+    finally:
+        db.close()
+        engine.dispose()
+
+
+def test_renter_replace_sends_single_changed_notification(monkeypatch):
+    engine, SessionLocal = _notify_db()
+    monkeypatch.setattr(notifications_service, "SessionLocal", SessionLocal)
+    monkeypatch.setattr(settings, "telegram_bot_token", "token")
+    bot = AsyncMock()
+    bot.send_message = AsyncMock()
+    monkeypatch.setattr(notifications_service, "get_bot", lambda: bot)
+    _restore_notifiers(monkeypatch)
+    monkeypatch.setattr(bookings_api, "notify_bookings_replaced", _REAL_NOTIFY_REPLACED)
+    db = SessionLocal()
+    try:
+        admin, renter, chair = _setup(db, monkeypatch)
+        old = Booking(
+            chair_id=chair.id,
+            renter_id=renter.id,
+            starts_at=_at(4, 9),
+            ends_at=_at(4, 10),
+            booking_type=BookingType.hourly,
+            duration_hours=1,
+            price_amount=1000,
+            currency="BYN",
+            payment_status=PaymentStatus.unpaid,
+            status=BookingStatus.active,
+            created_by=renter.id,
+        )
+        db.add(old)
+        db.commit()
+        db.refresh(old)
+        client = _client(db)
+        try:
+            resp = client.post(
+                "/api/v1/bookings/bulk",
+                json={
+                    "items": [
+                        {
+                            "chair_id": str(chair.id),
+                            "starts_at": f"{_day(4)}T12:00:00Z",
+                            "ends_at": f"{_day(4)}T14:00:00Z",
+                            "booking_type": "hourly",
+                        }
+                    ],
+                    "replace_booking_ids": [str(old.id)],
+                },
+                headers={"Authorization": f"Bearer {create_access_token(renter)}"},
+            )
+            assert resp.status_code == 201, resp.text
+        finally:
+            app.dependency_overrides.clear()
+
+        logs = db.scalars(select(NotificationLog))
+        events = {(log.event_type, log.recipient_user_id) for log in logs}
+        assert events == {
+            ("booking_replaced_renter", renter.id),
+            ("booking_replaced_admin", admin.id),
+        }
+        calls = bot.send_message.await_args_list
+        texts = {call.kwargs["chat_id"]: call.kwargs["text"] for call in calls}
+        assert "Было" in texts[admin.telegram_id] and "12:00-14:00" in texts[admin.telegram_id]
+        assert "09:00-10:00" in texts[admin.telegram_id]
+        assert "Бронирование изменено" in texts[renter.telegram_id]
     finally:
         db.close()
         engine.dispose()

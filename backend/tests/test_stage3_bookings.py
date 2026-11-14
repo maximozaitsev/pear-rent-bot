@@ -1,7 +1,9 @@
+import uuid
 from datetime import UTC, datetime, timedelta
 
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy import select
 
 from app.core.auth import create_access_token
 from app.core.config import settings
@@ -304,5 +306,130 @@ def test_renter_cannot_cancel_past_day_but_admin_can(db, stage3_data):
         resp = client.post(f"/api/v1/bookings/{booking.id}/cancel", headers=admin_h)
         assert resp.status_code == 200
         assert resp.json()["status"] == "cancelled"
+    finally:
+        app.dependency_overrides.clear()
+
+
+def _hourly(chair, offset, start, end):
+    return {
+        "chair_id": str(chair.id),
+        "starts_at": f"{_day(offset)}T{start:02d}:00:00Z",
+        "ends_at": f"{_day(offset)}T{end:02d}:00:00Z",
+        "booking_type": "hourly",
+    }
+
+
+def test_renter_replace_is_atomic_and_sends_one_notification(db, stage3_data, monkeypatch):
+    import app.api.v1.bookings as bookings_api
+
+    data = stage3_data
+    calls = []
+    monkeypatch.setattr(bookings_api, "notify_bookings_replaced", lambda **kw: calls.append(kw))
+    cancelled_calls = []
+    monkeypatch.setattr(
+        bookings_api, "notify_booking_cancelled", lambda **kw: cancelled_calls.append(kw)
+    )
+    client = _client(db)
+    try:
+        h = {"Authorization": f"Bearer {create_access_token(data['renter'])}"}
+        first = client.post(
+            "/api/v1/bookings/bulk", json={"items": [_hourly(data["chair1"], 1, 10, 12)]}, headers=h
+        ).json()
+        old_id = first["results"][0]["booking"]["id"]
+
+        resp = client.post(
+            "/api/v1/bookings/bulk",
+            json={
+                "items": [_hourly(data["chair1"], 1, 11, 13), _hourly(data["chair1"], 1, 15, 16)],
+                "replace_booking_ids": [old_id],
+            },
+            headers=h,
+        )
+        assert resp.status_code == 201, resp.text
+        body = resp.json()
+        assert body["created_count"] == 2
+        assert body["total_amount"] == 2000
+        old = db.get(Booking, uuid.UUID(old_id))
+        assert old.status == BookingStatus.cancelled
+        assert len(calls) == 1
+        assert calls[0]["old_ids"] == [old.id]
+        assert len(calls[0]["new_ids"]) == 2
+        assert cancelled_calls == []
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_renter_replace_conflict_keeps_old_bookings(db, stage3_data):
+    data = stage3_data
+    other = User(telegram_id=61004, role=UserRole.renter, is_active=True)
+    db.add(other)
+    db.commit()
+    create_booking(
+        db,
+        actor=other,
+        chair_id=data["chair1"].id,
+        starts_at=_at(2, 14),
+        ends_at=_at(2, 15),
+        booking_type=BookingType.hourly,
+    )
+    client = _client(db)
+    try:
+        h = {"Authorization": f"Bearer {create_access_token(data['renter'])}"}
+        first = client.post(
+            "/api/v1/bookings/bulk", json={"items": [_hourly(data["chair1"], 2, 10, 12)]}, headers=h
+        ).json()
+        old_id = first["results"][0]["booking"]["id"]
+
+        resp = client.post(
+            "/api/v1/bookings/bulk",
+            json={
+                "items": [_hourly(data["chair1"], 2, 10, 11), _hourly(data["chair1"], 2, 14, 15)],
+                "replace_booking_ids": [old_id],
+            },
+            headers=h,
+        )
+        assert resp.status_code == 201
+        assert resp.json()["created_count"] == 0
+        assert resp.json()["results"][0]["error"]
+        db.expire_all()
+        active = list(
+            db.scalars(
+                select(Booking).where(
+                    Booking.renter_id == data["renter"].id, Booking.status == BookingStatus.active
+                )
+            )
+        )
+        assert [str(b.id) for b in active] == [old_id]
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_renter_cannot_replace_foreign_booking(db, stage3_data):
+    data = stage3_data
+    other = User(telegram_id=61005, role=UserRole.renter, is_active=True)
+    db.add(other)
+    db.commit()
+    foreign = create_booking(
+        db,
+        actor=other,
+        chair_id=data["chair1"].id,
+        starts_at=_at(3, 10),
+        ends_at=_at(3, 11),
+        booking_type=BookingType.hourly,
+    )
+    client = _client(db)
+    try:
+        h = {"Authorization": f"Bearer {create_access_token(data['renter'])}"}
+        resp = client.post(
+            "/api/v1/bookings/bulk",
+            json={
+                "items": [_hourly(data["chair1"], 3, 12, 13)],
+                "replace_booking_ids": [str(foreign.id)],
+            },
+            headers=h,
+        )
+        assert resp.status_code == 404
+        db.refresh(foreign)
+        assert foreign.status == BookingStatus.active
     finally:
         app.dependency_overrides.clear()

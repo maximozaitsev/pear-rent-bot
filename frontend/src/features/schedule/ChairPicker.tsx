@@ -158,22 +158,22 @@ export function ChairPicker({
   async function submit() {
     if (isPast) { setError("Нельзя записаться на прошедший день"); return; }
     const oldIds = editMode ? chair.bookings.filter((b) => b.is_mine).map((b) => b.id) : [];
-    const oldSlots = editMode ? ownedIntervals.map((i) => i.starts_at.slice(11, 16)) : [];
     setBusy(true); setError(null);
     try {
-      if (editMode && oldIds.length) {
-        await Promise.all(oldIds.map((id) => api.cancelBooking(id)));
-      }
       if (mode === "full_day") {
         if (!wh.open_time || !wh.close_time) throw new Error("Барбершоп закрыт в этот день");
-        await api.createBooking({
+        const item = {
           chair_id: chair.chair_id,
           starts_at: `${day.date}T${wh.open_time.slice(0, 5)}:00`,
           ends_at: `${day.date}T${wh.close_time.slice(0, 5)}:00`,
-          booking_type: "full_day",
-        });
-        haptic("success");
-        onBooked();
+          booking_type: "full_day" as const,
+        };
+        if (oldIds.length) {
+          const res = await api.createBookingsBulk([item], oldIds);
+          if (res.created_count === 0) throw new Error(res.results[0]?.error || "Не удалось изменить бронирование");
+        } else {
+          await api.createBooking(item);
+        }
       } else {
         if (editMode ? (selectedHours.length > 0 && !allFree) : (!selectedHours.length || !allFree)) throw new Error("Выберите свободные часы");
         const items = groups.map((g) => ({
@@ -183,24 +183,16 @@ export function ChairPicker({
           booking_type: "hourly" as const,
         }));
         if (items.length) {
-          const res = await api.createBookingsBulk(items);
+          // In edit mode the server cancels old bookings and creates new ones atomically.
+          const res = await api.createBookingsBulk(items, oldIds);
           if (res.created_count === 0) throw new Error(res.results[0]?.error || "Не удалось создать бронирования");
+        } else if (oldIds.length) {
+          await Promise.all(oldIds.map((id) => api.cancelBooking(id)));
         }
-        haptic("success");
-        onBooked();
       }
+      haptic("success");
+      onBooked();
     } catch (e) {
-      if (editMode && oldSlots.length) {
-        try {
-          const restoreItems = groupHourIntervals(oldSlots).map((g) => ({
-            chair_id: chair.chair_id,
-            starts_at: `${day.date}T${g.start}`,
-            ends_at: `${day.date}T${g.end}`,
-            booking_type: "hourly" as const,
-          }));
-          await api.createBookingsBulk(restoreItems);
-        } catch { /* ignore restore errors */ }
-      }
       haptic("error");
       setError(`${errorText(e, "Не удалось создать бронирование")} Расписание обновлено.`);
       await onStale();

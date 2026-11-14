@@ -7,7 +7,12 @@ from sqlalchemy.orm import Session
 from app.core.auth import get_current_user, require_admin
 from app.core.db import get_db
 from app.models import Booking, BookingStatus, PaymentStatus, User, UserRole
-from app.notifications.service import notify_booking_cancelled, notify_booking_created, notify_bulk_bookings_created
+from app.notifications.service import (
+    notify_booking_cancelled,
+    notify_booking_created,
+    notify_bookings_replaced,
+    notify_bulk_bookings_created,
+)
 from app.schemas.bookings import (
     AdminBulkBookingCreateRequest,
     BookingCancelRequest,
@@ -27,6 +32,7 @@ from app.services.bookings import (
     get_booking_for_actor,
     list_admin_bookings,
     list_my_bookings,
+    replace_bookings,
     update_payment_status,
 )
 from app.services.schedule import localize_shop
@@ -87,9 +93,25 @@ def create_bulk(
         }
         for it in payload.items
     ]
-    bookings, failures = create_bookings_bulk(db, actor=user, items=items)
-    if bookings:
-        background_tasks.add_task(notify_bulk_bookings_created, booking_ids=[b.id for b in bookings], actor_id=user.id)
+    if payload.replace_booking_ids:
+        bookings, failures, replaced = replace_bookings(
+            db, actor=user, booking_ids=payload.replace_booking_ids, items=items
+        )
+        if bookings:
+            background_tasks.add_task(
+                notify_bookings_replaced,
+                old_ids=[b.id for b in replaced],
+                new_ids=[b.id for b in bookings],
+                actor_id=user.id,
+            )
+    else:
+        bookings, failures = create_bookings_bulk(db, actor=user, items=items)
+        if bookings:
+            background_tasks.add_task(
+                notify_bulk_bookings_created,
+                booking_ids=[b.id for b in bookings],
+                actor_id=user.id,
+            )
     outs = [_booking_out(b, viewer=user) for b in bookings]
     results = [
         BulkBookingResultItem(date=localize_shop(b.starts_at).date().isoformat(), chair_id=str(b.chair_id), ok=True, booking=out)
