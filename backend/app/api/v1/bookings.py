@@ -251,7 +251,14 @@ def admin_create_bulk(
         for b, out in zip(bookings, outs, strict=True)
     ]
     for f in failures:
-        results.append(BulkBookingResultItem(date="", chair_id=str(f["chair_id"]), ok=False, error=f["error"]))
+        results.append(
+            BulkBookingResultItem(
+                date=localize_shop(f["starts_at"]).date().isoformat(),
+                chair_id=str(f["chair_id"]),
+                ok=False,
+                error=f["error"],
+            )
+        )
     total_amount = sum(b.price_amount for b in bookings)
     currency = bookings[0].currency if bookings else "BYN"
     return BulkBookingCreateResponse(

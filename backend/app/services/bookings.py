@@ -267,6 +267,13 @@ def cancel_booking(
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT, detail="Booking cannot be cancelled"
         )
+    if (
+        actor.role == UserRole.renter
+        and localize_shop(booking.starts_at).date() < datetime.now(shop_tz()).date()
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail="Past bookings cannot be cancelled"
+        )
     if booking.status == BookingStatus.cancelled:
         return booking
     booking.status = BookingStatus.cancelled

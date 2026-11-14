@@ -270,3 +270,39 @@ def test_parallel_booking_one_succeeds_postgres():
     # Reliable concurrent coverage runs on PostgreSQL in CI.
     if not settings.database_url.startswith("postgresql"):
         pytest.skip("Parallel double-booking race requires PostgreSQL; covered in CI")
+
+
+def test_renter_cannot_cancel_past_day_but_admin_can(db, stage3_data):
+    data = stage3_data
+    today = datetime.now(UTC).replace(hour=10, minute=0, second=0, microsecond=0)
+    starts = today - timedelta(days=1)
+    booking = Booking(
+        chair_id=data["chair1"].id,
+        renter_id=data["renter"].id,
+        starts_at=starts,
+        ends_at=starts + timedelta(hours=1),
+        booking_type=BookingType.hourly,
+        duration_hours=1,
+        price_amount=1000,
+        currency="BYN",
+        payment_status=PaymentStatus.unpaid,
+        status=BookingStatus.active,
+        created_by=data["renter"].id,
+    )
+    db.add(booking)
+    db.commit()
+    db.refresh(booking)
+    client = _client(db)
+    try:
+        renter_h = {"Authorization": f"Bearer {create_access_token(data['renter'])}"}
+        resp = client.post(f"/api/v1/bookings/{booking.id}/cancel", headers=renter_h)
+        assert resp.status_code == 409
+        db.refresh(booking)
+        assert booking.status == BookingStatus.active
+
+        admin_h = {"Authorization": f"Bearer {create_access_token(data['admin'])}"}
+        resp = client.post(f"/api/v1/bookings/{booking.id}/cancel", headers=admin_h)
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "cancelled"
+    finally:
+        app.dependency_overrides.clear()
