@@ -1,4 +1,4 @@
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock
 
 from fastapi.testclient import TestClient
@@ -29,6 +29,14 @@ from app.notifications import service as notifications_service
 _REAL_NOTIFY_CREATED = notifications_service.notify_booking_created
 _REAL_NOTIFY_CANCELLED = notifications_service.notify_booking_cancelled
 _REAL_NOTIFY_BULK = notifications_service.notify_bulk_bookings_created
+
+
+def _day(offset: int) -> str:
+    return (datetime.now(UTC) + timedelta(days=offset)).date().isoformat()
+
+
+def _at(offset: int, hour: int) -> datetime:
+    return datetime.fromisoformat(f"{_day(offset)}T{hour:02d}:00:00+00:00")
 
 
 def _notify_db():
@@ -100,8 +108,8 @@ def test_notifications_on_create_and_admin_cancel(monkeypatch):
                 "/api/v1/bookings",
                 json={
                     "chair_id": str(chair.id),
-                    "starts_at": "2026-12-10T09:00:00Z",
-                    "ends_at": "2026-12-10T10:00:00Z",
+                    "starts_at": f"{_day(1)}T09:00:00Z",
+                    "ends_at": f"{_day(1)}T10:00:00Z",
                     "booking_type": "hourly",
                 },
                 headers=h_renter,
@@ -139,8 +147,8 @@ def test_renter_cancel_notifies_admin_and_no_payment_notification(monkeypatch):
         booking = Booking(
             chair_id=chair.id,
             renter_id=renter.id,
-            starts_at=datetime(2026, 12, 11, 9, 0, tzinfo=UTC),
-            ends_at=datetime(2026, 12, 11, 10, 0, tzinfo=UTC),
+            starts_at=_at(2, 9),
+            ends_at=_at(2, 10),
             booking_type=BookingType.hourly,
             duration_hours=1,
             price_amount=1000,
@@ -199,8 +207,8 @@ def test_notification_failure_does_not_rollback_booking(monkeypatch):
                 "/api/v1/bookings",
                 json={
                     "chair_id": str(chair.id),
-                    "starts_at": "2026-12-12T09:00:00Z",
-                    "ends_at": "2026-12-12T10:00:00Z",
+                    "starts_at": f"{_day(3)}T09:00:00Z",
+                    "ends_at": f"{_day(3)}T10:00:00Z",
                     "booking_type": "hourly",
                 },
                 headers=h_renter,
@@ -239,8 +247,8 @@ def test_bulk_notifications_skip_technical_renter(monkeypatch):
                     "items": [
                         {
                             "chair_id": str(chair.id),
-                            "starts_at": "2026-12-10T09:00:00Z",
-                            "ends_at": "2026-12-10T10:00:00Z",
+                            "starts_at": f"{_day(1)}T09:00:00Z",
+                            "ends_at": f"{_day(1)}T10:00:00Z",
                             "booking_type": "hourly",
                         }
                     ],

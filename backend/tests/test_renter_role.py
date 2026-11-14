@@ -18,6 +18,7 @@ from app.models import (
     WeeklySchedule,
 )
 import app.services.bookings as bookings_module
+import app.services.schedule as schedule_module
 from app.services.bookings import create_booking
 
 
@@ -32,6 +33,7 @@ class FixedDateTime(datetime):
 def _setup(db, monkeypatch):
     monkeypatch.setattr(settings, "timezone", "UTC")
     monkeypatch.setattr(bookings_module, "datetime", FixedDateTime)
+    monkeypatch.setattr(schedule_module, "datetime", FixedDateTime)
     for weekday in range(7):
         db.add(
             WeeklySchedule(

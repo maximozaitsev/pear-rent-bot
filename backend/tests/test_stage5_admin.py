@@ -18,6 +18,14 @@ from app.models import (
 )
 
 
+def _day(offset: int) -> str:
+    return (datetime.now(UTC) + timedelta(days=offset)).date().isoformat()
+
+
+def _at(offset: int, hour: int) -> datetime:
+    return datetime.fromisoformat(f"{_day(offset)}T{hour:02d}:00:00+00:00")
+
+
 def _setup(db, monkeypatch):
     monkeypatch.setattr(settings, "timezone", "UTC")
     for weekday in range(7):
@@ -50,8 +58,8 @@ def test_admin_chair_archive_conflict_and_payment_is_per_booking(db, monkeypatch
     b1 = Booking(
         chair_id=chair.id,
         renter_id=renter.id,
-        starts_at=datetime(2026, 12, 1, 9, 0, tzinfo=UTC),
-        ends_at=datetime(2026, 12, 1, 10, 0, tzinfo=UTC),
+        starts_at=_at(1, 9),
+        ends_at=_at(1, 10),
         booking_type=BookingType.hourly,
         duration_hours=1,
         price_amount=1000,
@@ -63,8 +71,8 @@ def test_admin_chair_archive_conflict_and_payment_is_per_booking(db, monkeypatch
     b2 = Booking(
         chair_id=chair.id,
         renter_id=renter.id,
-        starts_at=datetime(2026, 12, 1, 11, 0, tzinfo=UTC),
-        ends_at=datetime(2026, 12, 1, 12, 0, tzinfo=UTC),
+        starts_at=_at(1, 11),
+        ends_at=_at(1, 12),
         booking_type=BookingType.hourly,
         duration_hours=1,
         price_amount=1000,
@@ -103,8 +111,8 @@ def test_schedule_override_conflict_and_renter_status(db, monkeypatch):
         Booking(
             chair_id=chair.id,
             renter_id=renter.id,
-            starts_at=datetime(2026, 12, 2, 18, 0, tzinfo=UTC),
-            ends_at=datetime(2026, 12, 2, 20, 0, tzinfo=UTC),
+            starts_at=_at(2, 18),
+            ends_at=_at(2, 20),
             booking_type=BookingType.hourly,
             duration_hours=2,
             price_amount=1500,
@@ -119,7 +127,7 @@ def test_schedule_override_conflict_and_renter_status(db, monkeypatch):
     try:
         h = {"Authorization": f"Bearer {create_access_token(admin)}"}
         conflict = client.put(
-            "/api/v1/admin/schedule/exceptions/2026-12-02",
+            f"/api/v1/admin/schedule/exceptions/{_day(2)}",
             json={"is_open": True, "open_time": "09:00:00", "close_time": "19:00:00"},
             headers=h,
         )
@@ -127,7 +135,7 @@ def test_schedule_override_conflict_and_renter_status(db, monkeypatch):
         assert conflict.json()["detail"]["conflicts"]
 
         ok = client.put(
-            "/api/v1/admin/schedule/exceptions/2026-12-02",
+            f"/api/v1/admin/schedule/exceptions/{_day(2)}",
             json={"is_open": True, "open_time": "09:00:00", "close_time": "21:00:00"},
             headers=h,
         )

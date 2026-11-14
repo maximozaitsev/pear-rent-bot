@@ -1,4 +1,4 @@
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from fastapi.testclient import TestClient
@@ -19,6 +19,14 @@ from app.models import (
 )
 from app.notifications import service as notifications_service
 from app.services.bookings import create_booking
+
+
+def _day(offset: int) -> str:
+    return (datetime.now(UTC) + timedelta(days=offset)).date().isoformat()
+
+
+def _at(offset: int, hour: int) -> datetime:
+    return datetime.fromisoformat(f"{_day(offset)}T{hour:02d}:00:00+00:00")
 
 
 @pytest.fixture()
@@ -62,8 +70,8 @@ def test_full_day_booking_and_second_chair_available(db, stage3_data):
             "/api/v1/bookings",
             json={
                 "chair_id": str(data["chair1"].id),
-                "starts_at": "2026-11-09T09:00:00Z",
-                "ends_at": "2026-11-09T22:00:00Z",
+                "starts_at": f"{_day(1)}T09:00:00Z",
+                "ends_at": f"{_day(1)}T22:00:00Z",
                 "booking_type": "full_day",
             },
             headers=headers,
@@ -73,7 +81,7 @@ def test_full_day_booking_and_second_chair_available(db, stage3_data):
         assert body["price_amount"] == 6000
         assert body["payment_status"] == "unpaid"
 
-        day = client.get("/api/v1/schedule/day?date=2026-11-09", headers=headers).json()
+        day = client.get(f"/api/v1/schedule/day?date={_day(1)}", headers=headers).json()
         chairs = {c["chair_id"]: c for c in day["chairs"]}
         assert chairs[str(data["chair1"].id)]["is_fully_booked"] is True
         assert chairs[str(data["chair2"].id)]["is_free_whole_day"] is True
@@ -90,8 +98,8 @@ def test_hourly_booking_availability_and_boundary(db, stage3_data):
             "/api/v1/bookings",
             json={
                 "chair_id": str(data["chair1"].id),
-                "starts_at": "2026-11-10T12:00:00Z",
-                "ends_at": "2026-11-10T15:00:00Z",
+                "starts_at": f"{_day(2)}T12:00:00Z",
+                "ends_at": f"{_day(2)}T15:00:00Z",
                 "booking_type": "hourly",
             },
             headers=headers,
@@ -103,8 +111,8 @@ def test_hourly_booking_availability_and_boundary(db, stage3_data):
             "/api/v1/bookings",
             json={
                 "chair_id": str(data["chair1"].id),
-                "starts_at": "2026-11-10T09:00:00Z",
-                "ends_at": "2026-11-10T12:00:00Z",
+                "starts_at": f"{_day(2)}T09:00:00Z",
+                "ends_at": f"{_day(2)}T12:00:00Z",
                 "booking_type": "hourly",
             },
             headers=headers,
@@ -121,8 +129,8 @@ def test_overlap_rejected(db, stage3_data):
         headers = {"Authorization": f"Bearer {create_access_token(data['renter'])}"}
         payload = {
             "chair_id": str(data["chair1"].id),
-            "starts_at": "2026-11-11T12:00:00Z",
-            "ends_at": "2026-11-11T15:00:00Z",
+            "starts_at": f"{_day(3)}T12:00:00Z",
+            "ends_at": f"{_day(3)}T15:00:00Z",
             "booking_type": "hourly",
         }
         assert client.post("/api/v1/bookings", json=payload, headers=headers).status_code == 201
@@ -130,8 +138,8 @@ def test_overlap_rejected(db, stage3_data):
             "/api/v1/bookings",
             json={
                 "chair_id": str(data["chair1"].id),
-                "starts_at": "2026-11-11T11:00:00Z",
-                "ends_at": "2026-11-11T13:00:00Z",
+                "starts_at": f"{_day(3)}T11:00:00Z",
+                "ends_at": f"{_day(3)}T13:00:00Z",
                 "booking_type": "hourly",
             },
             headers=headers,
@@ -148,8 +156,8 @@ def test_cancel_and_rebook(db, stage3_data):
         headers = {"Authorization": f"Bearer {create_access_token(data['renter'])}"}
         payload = {
             "chair_id": str(data["chair1"].id),
-            "starts_at": "2026-11-12T10:00:00Z",
-            "ends_at": "2026-11-12T12:00:00Z",
+            "starts_at": f"{_day(4)}T10:00:00Z",
+            "ends_at": f"{_day(4)}T12:00:00Z",
             "booking_type": "hourly",
         }
         created = client.post("/api/v1/bookings", json=payload, headers=headers)
@@ -175,8 +183,8 @@ def test_renter_cannot_see_others_or_change_payment(db, stage3_data):
     booking = Booking(
         chair_id=data["chair1"].id,
         renter_id=other.id,
-        starts_at=datetime(2026, 11, 13, 10, 0, tzinfo=UTC),
-        ends_at=datetime(2026, 11, 13, 12, 0, tzinfo=UTC),
+        starts_at=_at(5, 10),
+        ends_at=_at(5, 12),
         booking_type=BookingType.hourly,
         duration_hours=2,
         price_amount=1500,
@@ -199,7 +207,7 @@ def test_renter_cannot_see_others_or_change_payment(db, stage3_data):
             headers=headers,
         )
         assert payment.status_code == 403
-        day = client.get("/api/v1/schedule/day?date=2026-11-13", headers=headers).json()
+        day = client.get(f"/api/v1/schedule/day?date={_day(5)}", headers=headers).json()
         chair = next(c for c in day["chairs"] if c["chair_id"] == str(data["chair1"].id))
         booked = chair["bookings"][0]
         assert "renter" not in booked
@@ -214,14 +222,14 @@ def test_admin_sees_renter_and_payment_and_can_update(db, stage3_data):
         db,
         actor=data["renter"],
         chair_id=data["chair1"].id,
-        starts_at=datetime(2026, 11, 14, 9, 0, tzinfo=UTC),
-        ends_at=datetime(2026, 11, 14, 10, 0, tzinfo=UTC),
+        starts_at=_at(6, 9),
+        ends_at=_at(6, 10),
         booking_type=BookingType.hourly,
     )
     client = _client(db)
     try:
         headers = {"Authorization": f"Bearer {create_access_token(data['admin'])}"}
-        day = client.get("/api/v1/schedule/day?date=2026-11-14", headers=headers).json()
+        day = client.get(f"/api/v1/schedule/day?date={_day(6)}", headers=headers).json()
         chair = next(c for c in day["chairs"] if c["chair_id"] == str(data["chair1"].id))
         booked = chair["bookings"][0]
         assert booked["renter"]["telegram_id"] == data["renter"].telegram_id
@@ -243,8 +251,8 @@ def test_renter_my_bookings_excludes_cancelled(db, stage3_data):
         db,
         actor=data["renter"],
         chair_id=data["chair1"].id,
-        starts_at=datetime(2026, 11, 15, 9, 0, tzinfo=UTC),
-        ends_at=datetime(2026, 11, 15, 10, 0, tzinfo=UTC),
+        starts_at=_at(7, 9),
+        ends_at=_at(7, 10),
         booking_type=BookingType.hourly,
     )
     client = _client(db)
