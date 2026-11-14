@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 
 from app.core.auth import require_admin
 from app.core.db import get_db
-from app.models import Booking, PaymentStatus, RenterRole, User
+from app.models import Booking, BookingStatus, PaymentStatus, RenterRole, User
 from app.schemas.admin import (
     RenterOut,
     RenterPaymentStats,
@@ -65,12 +65,14 @@ def _booking_out(booking, viewer: User) -> BookingOut:
 
 
 def _payment_stats(bookings: list[Booking]) -> RenterPaymentStats:
-    now = datetime.now(shop_tz())
+    today = datetime.now(shop_tz()).date()
     debt = to_pay = paid_total = 0
     for b in bookings:
+        if b.status != BookingStatus.active:
+            continue
         if b.payment_status == PaymentStatus.paid:
             paid_total += b.price_amount
-        elif b.starts_at < now:
+        elif localize_shop(b.starts_at).date() < today:
             debt += b.price_amount
         else:
             to_pay += b.price_amount

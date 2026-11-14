@@ -1,4 +1,4 @@
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from fastapi.testclient import TestClient
 
@@ -152,5 +152,49 @@ def test_renter_cannot_use_admin_management_endpoints(db, monkeypatch):
         assert client.post("/api/v1/admin/chairs", json={"name": "X"}, headers=h).status_code == 403
         assert client.get("/api/v1/admin/renters", headers=h).status_code == 403
         assert client.get("/api/v1/admin/schedule/weekly", headers=h).status_code == 403
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_renter_payment_stats_split_by_day_and_skip_cancelled(db, monkeypatch):
+    admin, renter, chair = _setup(db, monkeypatch)
+    now = datetime.now(UTC)
+    today = now.replace(hour=0, minute=0, second=0, microsecond=0)
+
+    def add(day_offset, hour, price, *, paid=False, cancelled=False):
+        starts = today + timedelta(days=day_offset, hours=hour)
+        db.add(
+            Booking(
+                chair_id=chair.id,
+                renter_id=renter.id,
+                starts_at=starts,
+                ends_at=starts + timedelta(hours=1),
+                booking_type=BookingType.hourly,
+                duration_hours=1,
+                price_amount=price,
+                currency="BYN",
+                payment_status=PaymentStatus.paid if paid else PaymentStatus.unpaid,
+                status=BookingStatus.cancelled if cancelled else BookingStatus.active,
+                created_by=renter.id,
+            )
+        )
+
+    add(-2, 10, 100)
+    add(-2, 12, 200, cancelled=True)
+    add(-1, 10, 300, paid=True)
+    add(0, 0, 400)
+    add(3, 10, 500)
+    add(3, 12, 600, cancelled=True)
+    add(4, 10, 700, paid=True)
+    add(-1, 10, 800, paid=True, cancelled=True)
+    add(5, 10, 900, paid=True, cancelled=True)
+    db.commit()
+
+    client = _client(db)
+    try:
+        h = {"Authorization": f"Bearer {create_access_token(admin)}"}
+        resp = client.get(f"/api/v1/admin/renters/{renter.id}", headers=h)
+        assert resp.status_code == 200
+        assert resp.json()["stats"] == {"debt": 100, "to_pay": 900, "paid_total": 1000}
     finally:
         app.dependency_overrides.clear()

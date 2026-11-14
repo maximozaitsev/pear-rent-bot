@@ -154,30 +154,38 @@ export function RentersAdmin() {
             <button className="btn btn-block btn-danger" disabled={busy} onClick={() => remove(selected.renter)}>Удалить</button>
           </div>
           <p className="muted small">При удалении арендатор и все его брони удаляются безвозвратно. При деактивации запрещаются новые брони, но существующие не отменяются автоматически.</p>
-          <div className="section-label">Будущие бронирования</div>
-          {selected.bookings.length === 0 && <p className="muted">Броней нет.</p>}
-          <ul className="list">
-            {groupBookings(selected.bookings)
-              .filter((g) => {
-                const starts = new Date(`${g.day}T${g.start}`);
-                const isFuture = starts >= new Date();
-                const hasDebt = g.bookings.some((b) => b.payment_status !== "paid");
-                return isFuture || hasDebt;
-              })
-              .map((g) => (
+          {(() => {
+            const today = new Date().toLocaleDateString("sv-SE");
+            const currency = selected.bookings[0]?.currency ?? "BYN";
+            const debtGroups = groupBookings(selected.bookings.filter((b) => b.payment_status !== "paid" && b.starts_at.slice(0, 10) < today));
+            const futureGroups = groupBookings(selected.bookings.filter((b) => b.starts_at.slice(0, 10) >= today));
+            const renderGroup = (g: ReturnType<typeof groupBookings>[number]) => (
               <li key={`${g.day}::${g.chair_id}::${g.start}`} className="item-plain">
                 <div>
                   <div style={{ fontWeight: 600 }}>{formatDateDot(g.day)} · {g.start}–{g.end}{g.merged ? ` (${g.totalHours} ч)` : ""}</div>
-                  <div className="muted small">{formatMoney(g.totalPrice, selected.bookings[0]?.currency ?? "BYN")} · {g.bookings.map((b) => b.status).join(", ")}{g.merged ? ` · ${g.bookings.length} записи` : ""}</div>
+                  <div className="muted small">{formatMoney(g.totalPrice, currency)}{g.merged ? ` · ${g.bookings.length} записи` : ""}</div>
                 </div>
-                {g.bookings.some((b) => b.payment_status === "paid") && g.bookings.every((b) => b.payment_status === "paid") ? (
+                {g.bookings.every((b) => b.payment_status === "paid") ? (
                   <span className="chip ok">оплачено</span>
                 ) : (
                   <span className="chip warn">не оплачено</span>
                 )}
               </li>
-            ))}
-          </ul>
+            );
+            return (
+              <>
+                {debtGroups.length > 0 && (
+                  <>
+                    <div className="section-label">Долг</div>
+                    <ul className="list">{debtGroups.map(renderGroup)}</ul>
+                  </>
+                )}
+                <div className="section-label">Будущие бронирования</div>
+                {futureGroups.length === 0 && <p className="muted">Броней нет.</p>}
+                <ul className="list">{futureGroups.map(renderGroup)}</ul>
+              </>
+            );
+          })()}
         </Sheet>
       )}
     </>
