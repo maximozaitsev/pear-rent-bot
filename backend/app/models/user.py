@@ -31,9 +31,11 @@ class User(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         Enum(UserRole, name="user_role", native_enum=False, length=20),
         nullable=False,
     )
-    renter_role: Mapped[RenterRole | None] = mapped_column(
+    renter_role: Mapped[RenterRole] = mapped_column(
         Enum(RenterRole, name="renter_role", native_enum=False, length=20),
-        nullable=True,
+        nullable=False,
+        default=RenterRole.permanent,
+        server_default=RenterRole.permanent.value,
     )
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
 

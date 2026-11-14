@@ -2,6 +2,7 @@ from datetime import UTC, datetime
 
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy import select
 
 from app.core.auth import create_access_token
 from app.core.config import settings
@@ -128,4 +129,48 @@ def test_role_change_updates_booking_window(db, monkeypatch):
 
     start, end = _hour(1, 12)
     b = create_booking(db, actor=tmp, chair_id=chair.id, starts_at=start, ends_at=end, booking_type=BookingType.hourly)
+    assert b.status == BookingStatus.active
+
+
+def test_admin_bulk_with_new_renter_name_creates_technical_renter(db, monkeypatch):
+    admin, _perm, _tmp, chair = _setup(db, monkeypatch)
+    client = _client(db)
+    start, end = _hour(20)
+    try:
+        resp = client.post(
+            "/api/v1/admin/bookings/bulk",
+            json={
+                "renter_name": "Тестовый мастер",
+                "items": [
+                    {
+                        "chair_id": str(chair.id),
+                        "starts_at": start.isoformat(),
+                        "ends_at": end.isoformat(),
+                        "booking_type": "hourly",
+                    }
+                ],
+            },
+            headers={"Authorization": f"Bearer {create_access_token(admin)}"},
+        )
+    finally:
+        app.dependency_overrides.clear()
+    assert resp.status_code == 201, resp.text
+    assert resp.json()["created_count"] == 1
+    renter = db.scalar(select(User).where(User.first_name == "Тестовый мастер"))
+    assert renter.telegram_id < 0
+    assert renter.renter_role == RenterRole.temporary
+
+
+def test_admin_books_next_month_for_temporary_before_15(db, monkeypatch):
+    admin, _perm, tmp, chair = _setup(db, monkeypatch)
+    start, end = _hour(1, 12)
+    b = create_booking(
+        db,
+        actor=admin,
+        chair_id=chair.id,
+        starts_at=start,
+        ends_at=end,
+        booking_type=BookingType.hourly,
+        renter_id=tmp.id,
+    )
     assert b.status == BookingStatus.active

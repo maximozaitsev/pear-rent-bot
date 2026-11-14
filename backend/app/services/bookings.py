@@ -109,6 +109,7 @@ def _create_technical_renter(db: Session, name: str) -> User:
                 telegram_id=tg_id,
                 first_name=clean,
                 role=UserRole.renter,
+                renter_role=RenterRole.temporary,
                 is_active=True,
             )
             db.add(user)
@@ -146,7 +147,8 @@ def create_booking(
             if renter_name is not None and renter_id is None:
                 renter_id = _create_technical_renter(db, renter_name).id
             renter = _resolve_renter(db, actor=actor, renter_id=renter_id)
-            _assert_renter_booking_window(renter, starts_local)
+            if actor.role != UserRole.admin:
+                _assert_renter_booking_window(renter, starts_local)
             _lock_chair(db, chair_id)
             validate_booking_window(db, starts_at=starts_at, ends_at=ends_at, allow_past=allow_past)
 

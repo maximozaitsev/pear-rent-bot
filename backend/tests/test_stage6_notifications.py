@@ -28,6 +28,7 @@ from app.notifications import service as notifications_service
 # Capture real implementations before conftest autouse monkeypatches module attrs.
 _REAL_NOTIFY_CREATED = notifications_service.notify_booking_created
 _REAL_NOTIFY_CANCELLED = notifications_service.notify_booking_cancelled
+_REAL_NOTIFY_BULK = notifications_service.notify_bulk_bookings_created
 
 
 def _notify_db():
@@ -213,6 +214,45 @@ def test_notification_failure_does_not_rollback_booking(monkeypatch):
         assert failed
         assert all(log.status == "failed" for log in failed)
         assert all(log.last_error for log in failed)
+    finally:
+        db.close()
+        engine.dispose()
+
+
+def test_bulk_notifications_skip_technical_renter(monkeypatch):
+    engine, SessionLocal = _notify_db()
+    monkeypatch.setattr(notifications_service, "SessionLocal", SessionLocal)
+    monkeypatch.setattr(settings, "telegram_bot_token", "token")
+    bot = AsyncMock()
+    bot.send_message = AsyncMock()
+    monkeypatch.setattr(notifications_service, "get_bot", lambda: bot)
+    monkeypatch.setattr(bookings_api, "notify_bulk_bookings_created", _REAL_NOTIFY_BULK)
+    db = SessionLocal()
+    try:
+        admin, _renter, chair = _setup(db, monkeypatch)
+        client = _client(db)
+        try:
+            resp = client.post(
+                "/api/v1/admin/bookings/bulk",
+                json={
+                    "renter_name": "Мастер без Telegram",
+                    "items": [
+                        {
+                            "chair_id": str(chair.id),
+                            "starts_at": "2026-12-10T09:00:00Z",
+                            "ends_at": "2026-12-10T10:00:00Z",
+                            "booking_type": "hourly",
+                        }
+                    ],
+                },
+                headers={"Authorization": f"Bearer {create_access_token(admin)}"},
+            )
+            assert resp.status_code == 201, resp.text
+        finally:
+            app.dependency_overrides.clear()
+
+        sent_to = {call.kwargs["chat_id"] for call in bot.send_message.await_args_list}
+        assert sent_to == {admin.telegram_id}
     finally:
         db.close()
         engine.dispose()

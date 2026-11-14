@@ -112,6 +112,13 @@ def _admin_recipients(db: Session) -> list[User]:
     )
 
 
+def _notifiable_renter_id(renter: User | None) -> uuid.UUID | None:
+    # Technical renters created by admin have synthetic negative telegram_id: no chat to send to.
+    if renter is None or renter.telegram_id <= 0:
+        return None
+    return renter.id
+
+
 def _get_or_create_log(
     db: Session, *, event_type: str, booking_id: uuid.UUID, recipient_user_id: uuid.UUID
 ) -> NotificationLog | None:
@@ -290,7 +297,7 @@ def notify_bulk_bookings_created(*, booking_ids: list[uuid.UUID], actor_id: uuid
                 return
             renter = db.get(User, bookings[0].renter_id)
             admins = _admin_recipients(db)
-            renter_id = renter.id if renter else None
+            renter_id = _notifiable_renter_id(renter)
             admin_ids = [a.id for a in admins if a.id != bookings[0].renter_id]
             chair_ids = {b.chair_id for b in bookings}
             chairs = list(db.scalars(select(Chair).where(Chair.id.in_(chair_ids)))) if chair_ids else []
@@ -368,7 +375,7 @@ def notify_booking_created(*, booking_id: uuid.UUID, actor_id: uuid.UUID) -> Non
             renter = db.get(User, booking.renter_id)
             admins = _admin_recipients(db)
             admin_ids = [a.id for a in admins if a.id != booking.renter_id]
-            renter_id = renter.id if renter and renter.telegram_id and renter.telegram_id > 0 else None
+            renter_id = _notifiable_renter_id(renter)
         finally:
             db.close()
         if renter_id is not None:
@@ -399,7 +406,7 @@ def notify_booking_cancelled(*, booking_id: uuid.UUID, actor_id: uuid.UUID) -> N
                 return
             renter = db.get(User, booking.renter_id)
             admins = _admin_recipients(db)
-            renter_id = renter.id if renter else None
+            renter_id = _notifiable_renter_id(renter)
             admin_ids = [a.id for a in admins]
         finally:
             db.close()
